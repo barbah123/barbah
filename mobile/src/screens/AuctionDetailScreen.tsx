@@ -11,8 +11,9 @@ import {
   View,
 } from 'react-native';
 import { api } from '../api';
-import { colors, timeLeft } from '../theme';
+import { colors } from '../theme';
 import Thumb from '../components/Thumb';
+import Countdown from '../components/Countdown';
 
 type Bid = { amount: number; created_at: number; username: string };
 type AuctionDetail = {
@@ -35,6 +36,7 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +51,18 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
   useEffect(() => {
     load();
   }, [load]);
+
+  // Flip to "ended" exactly when the auction's time runs out (no per-second re-render).
+  useEffect(() => {
+    if (!auction) return;
+    const msLeft = auction.ends_at * 1000 - Date.now();
+    if (msLeft <= 0) {
+      setExpired(true);
+      return;
+    }
+    const id = setTimeout(() => setExpired(true), msLeft);
+    return () => clearTimeout(id);
+  }, [auction]);
 
   const minBid = auction ? auction.current_price + auction.min_bid_increment : 0;
 
@@ -92,7 +106,7 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
     );
   }
 
-  const ended = auction.ends_at * 1000 <= Date.now() || auction.status !== 'active';
+  const ended = expired || auction.ends_at * 1000 <= Date.now() || auction.status !== 'active';
 
   return (
     <View style={styles.screen}>
@@ -122,7 +136,7 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.priceLabel}>Kalan süre</Text>
-            <Text style={styles.timeBig}>⏱ {timeLeft(auction.ends_at)}</Text>
+            <Countdown endsAt={auction.ends_at} prefix="⏱ " style={styles.timeBig} />
           </View>
         </View>
 

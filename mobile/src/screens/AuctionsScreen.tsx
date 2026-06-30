@@ -10,8 +10,9 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api';
-import { colors, timeLeft } from '../theme';
+import { colors } from '../theme';
 import Thumb from '../components/Thumb';
+import Countdown from '../components/Countdown';
 
 type Auction = {
   id: string;
@@ -112,7 +113,7 @@ export default function AuctionsScreen({
               <View style={styles.cardRow}>
                 <Text style={styles.price}>{item.current_price} ₺</Text>
                 <View style={styles.pill}>
-                  <Text style={styles.pillText}>⏱ {timeLeft(item.ends_at)}</Text>
+                  <Countdown endsAt={item.ends_at} prefix="⏱ " style={styles.pillText} />
                 </View>
               </View>
             </View>

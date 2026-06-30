@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.5.0';
+const APP_VERSION = 'v0.6.0';
 
 let TOKEN = null;
 
@@ -61,12 +61,23 @@ const api = {
   },
 };
 
-function timeLeft(endsAt) {
-  const ms = endsAt * 1000 - Date.now();
-  if (ms <= 0) return 'Bitti';
-  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-  if (h >= 24) return Math.floor(h / 24) + 'g ' + (h % 24) + 's';
-  return h + 's ' + m + 'd';
+function fmtCountdown(endsAt, now) {
+  let s = Math.floor(endsAt - now);
+  if (s <= 0) return 'Bitti';
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); const sec = s - m * 60;
+  return d > 0 ? d + 'g ' + pad(h) + ':' + pad(m) + ':' + pad(sec) : pad(h) + ':' + pad(m) + ':' + pad(sec);
+}
+
+function Countdown({ endsAt, prefix = '', style }) {
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <Text style={style}>{prefix}{fmtCountdown(endsAt, now)}</Text>;
 }
 
 function Thumb({ imageKey, size }) {
@@ -166,7 +177,7 @@ function AuctionsScreen({ onLogout, onOpen, onCreate }) {
               <Text style={st.seller}>@{item.seller_username}</Text>
               <View style={st.cardRow}>
                 <Text style={st.price}>{item.current_price} ₺</Text>
-                <View style={st.pill}><Text style={st.pillText}>⏱ {timeLeft(item.ends_at)}</Text></View>
+                <View style={st.pill}><Countdown endsAt={item.ends_at} prefix="⏱ " style={st.pillText} /></View>
               </View>
             </View>
           </Pressable>
@@ -184,6 +195,7 @@ function DetailScreen({ id, onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
+  const [expired, setExpired] = useState(false);
 
   const load = useCallback(async () => {
     try { setAuction(await api.getAuction(id)); }
@@ -191,6 +203,14 @@ function DetailScreen({ id, onBack }) {
     finally { setLoading(false); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!auction) return;
+    const msLeft = auction.ends_at * 1000 - Date.now();
+    if (msLeft <= 0) { setExpired(true); return; }
+    const t = setTimeout(() => setExpired(true), msLeft);
+    return () => clearTimeout(t);
+  }, [auction]);
 
   const minBid = auction ? auction.current_price + auction.min_bid_increment : 0;
 
@@ -213,7 +233,7 @@ function DetailScreen({ id, onBack }) {
       <Pressable onPress={onBack}><Text style={st.switchText}>← Geri</Text></Pressable></View>
   );
 
-  const ended = auction.ends_at * 1000 <= Date.now() || auction.status !== 'active';
+  const ended = expired || auction.ends_at * 1000 <= Date.now() || auction.status !== 'active';
 
   return (
     <View style={st.screen}>
@@ -237,7 +257,7 @@ function DetailScreen({ id, onBack }) {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={st.priceLabel}>Kalan süre</Text>
-            <Text style={st.timeBig}>⏱ {timeLeft(auction.ends_at)}</Text>
+            <Countdown endsAt={auction.ends_at} prefix="⏱ " style={st.timeBig} />
           </View>
         </View>
 

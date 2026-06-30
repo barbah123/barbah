@@ -1,0 +1,82 @@
+# Production-ish stack for a single host (e.g. an EC2 instance).
+# Deployed image comes from GHCR; secrets come from AWS SSM (USE_SSM=true).
+#
+# On the host:
+#   export BACKEND_IMAGE=ghcr.io/<owner>/<repo>-backend:latest
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# The instance IAM role must allow ssm:GetParametersByPath (+ KMS decrypt) and,
+# for backups, s3:PutObject/ListBucket on the backup bucket.
+services:
+  api:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to the GHCR image ref}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      USE_SSM: "true"
+      SSM_PATH: ${SSM_PATH:-/pokemon-auction/prod}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      # DATABASE_URL / JWT_SECRET / S3_BUCKET etc. are pulled from SSM at startup.
+      # Provide the in-cluster DB URL here so it overrides any SSM value:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pokemon_auction}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8080:8080"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-pokemon_auction}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Scheduled S3 backups: runs backup.sh once per BACKUP_INTERVAL_SECONDS.
+  backup:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE to the GHCR image ref}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-pokemon_auction}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:?set BACKUP_S3_BUCKET}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-postgres}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          bash scripts/backup.sh || echo "backup failed (will retry next cycle)";
+          sleep "${BACKUP_INTERVAL_SECONDS:-86400}";
+        done
+
+volumes:
+  pgdata:
+  redisdata:

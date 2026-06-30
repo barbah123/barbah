@@ -1,40 +1,47 @@
-import { Env } from '../index';
-import { json, corsHeaders } from '../middleware/cors';
-import { getUser } from '../lib/jwt';
+import { Router, raw } from 'express';
+import { randomUUID } from 'node:crypto';
+import { requireAuth } from '../middleware/auth.js';
+import type { Storage } from '../storage.js';
 
-export async function imageRoutes(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
+const MAX_BYTES = 5 * 1024 * 1024;
 
-  // POST /images/upload — returns a pre-signed key after upload
-  if (path === '/images/upload' && request.method === 'POST') {
-    const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+export function imageRouter(storage: Storage): Router {
+  const router = Router();
 
-    const contentType = request.headers.get('Content-Type') ?? 'image/jpeg';
-    const key = `cards/${user.id}/${crypto.randomUUID()}`;
+  // POST /images/upload — raw binary body, returns the stored object key.
+  router.post(
+    '/upload',
+    requireAuth,
+    raw({ type: '*/*', limit: '10mb' }),
+    async (req, res) => {
+      const user = req.user!;
+      const body = req.body as Buffer;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return res.status(400).json({ error: 'Empty body' });
+      }
+      if (body.length > MAX_BYTES) {
+        return res.status(400).json({ error: 'File too large (max 5MB)' });
+      }
 
-    const body = await request.arrayBuffer();
-    if (body.byteLength > 5 * 1024 * 1024) return json({ error: 'File too large (max 5MB)' }, 400);
+      const contentType = req.header('content-type') ?? 'image/jpeg';
+      const key = `cards/${user.id}/${randomUUID()}`;
+      await storage.put(key, body, contentType);
+      return res.json({ key });
+    },
+  );
 
-    await env.BUCKET.put(key, body, { httpMetadata: { contentType } });
-    return json({ key });
-  }
+  // GET /images/<key> — key may contain slashes (cards/<userId>/<uuid>).
+  router.get('/*', async (req, res) => {
+    const key = (req.params as Record<string, string>)[0];
+    if (!key) return res.status(404).json({ error: 'Not found' });
 
-  // GET /images/:key — serve image
-  if (path.startsWith('/images/') && request.method === 'GET') {
-    const key = path.replace('/images/', '');
-    const obj = await env.BUCKET.get(key);
-    if (!obj) return json({ error: 'Not found' }, 404);
+    const obj = await storage.get(key);
+    if (!obj) return res.status(404).json({ error: 'Not found' });
 
-    return new Response(obj.body, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': obj.httpMetadata?.contentType ?? 'image/jpeg',
-        'Cache-Control': 'public, max-age=31536000',
-      },
-    });
-  }
+    res.setHeader('Content-Type', obj.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    return res.send(obj.body);
+  });
 
-  return json({ error: 'Not found' }, 404);
+  return router;
 }

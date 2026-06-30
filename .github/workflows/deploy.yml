@@ -1,79 +1,102 @@
-name: Deploy to Cloudflare
+name: Build & Deploy (backend)
 
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
 
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
 jobs:
-  setup-and-deploy:
+  build-and-push:
+    name: Build image & push to GHCR
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Compute image ref
+        id: meta
+        run: |
+          REPO="ghcr.io/${GITHUB_REPOSITORY,,}-backend"
+          echo "image=${REPO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: 22
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install backend deps
-        working-directory: backend
-        run: npm install
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.repo }}:${{ github.sha }}
+            ${{ steps.meta.outputs.repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Create D1 Database (idempotent)
-        working-directory: backend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  deploy-ssm:
+    name: Deploy via AWS SSM
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      SSM_DEPLOY_TARGET_TAG: ${{ secrets.SSM_DEPLOY_TARGET_TAG }}
+    steps:
+      - name: Check AWS configuration
+        id: cfg
         run: |
-          echo "Checking for existing D1 database..."
-          DB_LIST=$(npx wrangler d1 list 2>&1)
-          echo "$DB_LIST"
-          if echo "$DB_LIST" | grep -q "pokemon-auction-db"; then
-            echo "Database already exists, fetching ID..."
-            DB_ID=$(echo "$DB_LIST" | grep "pokemon-auction-db" | awk '{print $NF}' | tr -d '│ ')
-            echo "Found DB_ID: $DB_ID"
+          if [ -n "$AWS_ROLE_ARN" ] && [ -n "$AWS_REGION" ] && [ -n "$SSM_DEPLOY_TARGET_TAG" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Creating D1 database..."
-            CREATE_OUTPUT=$(npx wrangler d1 create pokemon-auction-db 2>&1)
-            echo "$CREATE_OUTPUT"
-            DB_ID=$(echo "$CREATE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
-            echo "Created DB_ID: $DB_ID"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AWS deploy secrets not set (AWS_ROLE_ARN, AWS_REGION, SSM_DEPLOY_TARGET_TAG). Skipping SSM deploy; image is available in GHCR."
           fi
-          if [ -z "$DB_ID" ]; then
-            echo "ERROR: Could not determine database ID"
-            exit 1
-          fi
-          sed -i "s/database_id = \"placeholder\"/database_id = \"$DB_ID\"/" wrangler.toml
-          echo "Updated wrangler.toml with database_id: $DB_ID"
-          cat wrangler.toml
 
-      - name: Create R2 Bucket (idempotent)
-        working-directory: backend
+      - name: Configure AWS credentials (OIDC)
+        if: steps.cfg.outputs.configured == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Sends a deploy command to every EC2 instance tagged
+      # Deploy=<SSM_DEPLOY_TARGET_TAG>. The instance pulls the new image and
+      # restarts the compose stack. The instance's IAM role provides app secrets
+      # via SSM Parameter Store (USE_SSM=true in its environment).
+      - name: Trigger SSM deploy
+        if: steps.cfg.outputs.configured == 'true'
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
-          npx wrangler r2 bucket create pokemon-auction-images 2>&1 || echo "Bucket may already exist, continuing..."
-
-      - name: Run D1 Migrations
-        working-directory: backend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          npx wrangler d1 execute pokemon-auction-db --file=migrations/0001_init.sql --remote 2>&1
-
-      - name: Deploy Worker
-        working-directory: backend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
-
-      - name: Set JWT Secret
-        working-directory: backend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        run: echo "$JWT_SECRET" | npx wrangler secret put JWT_SECRET
+          set -euo pipefail
+          aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:Deploy,Values=${SSM_DEPLOY_TARGET_TAG}" \
+            --comment "Deploy ${IMAGE}" \
+            --parameters "commands=[\
+              'set -e',\
+              'cd /opt/pokemon-auction',\
+              'export BACKEND_IMAGE=${IMAGE}',\
+              'docker pull ${IMAGE}',\
+              'docker compose up -d --no-build',\
+              'docker image prune -f'\
+            ]" \
+            --output text

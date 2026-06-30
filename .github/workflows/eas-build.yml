@@ -1,0 +1,58 @@
+name: EAS Build (mobile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        type: choice
+        default: preview
+        options: [development, preview, production]
+      platform:
+        description: 'Target platform'
+        type: choice
+        default: all
+        options: [all, android, ios]
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check EXPO_TOKEN
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN secret is not set. Create a token at https://expo.dev/settings/access-tokens and add it under repo Settings -> Secrets."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install deps
+        working-directory: mobile
+        run: npm ci
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Builds run on EAS servers. Use --no-wait so CI doesn't block on the
+      # (potentially long) native build queue; track progress at expo.dev.
+      - name: Run EAS build
+        working-directory: mobile
+        run: |
+          eas build \
+            --platform "${{ inputs.platform }}" \
+            --profile "${{ inputs.profile }}" \
+            --non-interactive \
+            --no-wait

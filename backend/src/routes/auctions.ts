@@ -1,90 +1,156 @@
-import { Env } from '../index';
-import { json } from '../middleware/cors';
-import { getUser } from '../lib/jwt';
+import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
+import { query, withTransaction } from '../db.js';
+import { requireAuth } from '../middleware/auth.js';
+import { cacheGet, cacheSet, cacheDel } from '../redis.js';
 
-export async function auctionRoutes(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const segments = path.split('/').filter(Boolean);
+const LIST_TTL_SECONDS = 5;
+const listCacheKey = (status: string) => `auctions:list:${status}`;
 
-  // GET /auctions
-  if (path === '/auctions' && request.method === 'GET') {
-    const status = url.searchParams.get('status') ?? 'active';
-    const auctions = await env.DB.prepare(
-      `SELECT a.*, u.username as seller_username
-       FROM auctions a JOIN users u ON a.seller_id = u.id
-       WHERE a.status = ? ORDER BY a.ends_at ASC LIMIT 50`
-    ).bind(status).all();
-    return json(auctions.results);
-  }
+export function auctionRouter(): Router {
+  const router = Router();
+
+  // GET /auctions?status=active
+  router.get('/', async (req, res) => {
+    const status = String(req.query.status ?? 'active');
+
+    const cached = await cacheGet(listCacheKey(status));
+    if (cached) {
+      res.type('application/json').send(cached);
+      return;
+    }
+
+    const result = await query(
+      `SELECT a.*, u.username AS seller_username
+         FROM auctions a JOIN users u ON a.seller_id = u.id
+        WHERE a.status = $1
+        ORDER BY a.ends_at ASC
+        LIMIT 50`,
+      [status],
+    );
+
+    const payload = JSON.stringify(result.rows);
+    await cacheSet(listCacheKey(status), payload, LIST_TTL_SECONDS);
+    res.type('application/json').send(payload);
+  });
 
   // GET /auctions/:id
-  if (segments.length === 2 && request.method === 'GET') {
-    const id = segments[1];
-    const auction = await env.DB.prepare(
-      `SELECT a.*, u.username as seller_username FROM auctions a
-       JOIN users u ON a.seller_id = u.id WHERE a.id = ?`
-    ).bind(id).first();
-    if (!auction) return json({ error: 'Not found' }, 404);
+  router.get('/:id', async (req, res) => {
+    const { id } = req.params;
+    const auctionRes = await query(
+      `SELECT a.*, u.username AS seller_username
+         FROM auctions a JOIN users u ON a.seller_id = u.id
+        WHERE a.id = $1`,
+      [id],
+    );
+    const auction = auctionRes.rows[0];
+    if (!auction) return res.status(404).json({ error: 'Not found' });
 
-    const bids = await env.DB.prepare(
-      `SELECT b.amount, b.created_at, u.username FROM bids b
-       JOIN users u ON b.bidder_id = u.id WHERE b.auction_id = ? ORDER BY b.amount DESC LIMIT 20`
-    ).bind(id).all();
+    const bidsRes = await query(
+      `SELECT b.amount, b.created_at, u.username
+         FROM bids b JOIN users u ON b.bidder_id = u.id
+        WHERE b.auction_id = $1
+        ORDER BY b.amount DESC
+        LIMIT 20`,
+      [id],
+    );
 
-    return json({ ...auction, bids: bids.results });
-  }
+    return res.json({ ...auction, bids: bidsRes.rows });
+  });
 
   // POST /auctions
-  if (path === '/auctions' && request.method === 'POST') {
-    const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+  router.post('/', requireAuth, async (req, res) => {
+    const user = req.user!;
+    const {
+      title,
+      description,
+      card_image_key,
+      starting_price,
+      min_bid_increment,
+      duration_hours,
+    } = req.body ?? {};
 
-    const { title, description, card_image_key, starting_price, min_bid_increment, duration_hours } = await request.json() as any;
     if (!title || !card_image_key || !starting_price || !min_bid_increment || !duration_hours) {
-      return json({ error: 'Missing fields' }, 400);
+      return res.status(400).json({ error: 'Missing fields' });
     }
 
-    const id = crypto.randomUUID();
-    const ends_at = Math.floor(Date.now() / 1000) + duration_hours * 3600;
+    const id = randomUUID();
+    const endsAt = Math.floor(Date.now() / 1000) + Number(duration_hours) * 3600;
 
-    await env.DB.prepare(
-      `INSERT INTO auctions (id, seller_id, title, description, card_image_key, starting_price, min_bid_increment, current_price, ends_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, user.id, title, description ?? '', card_image_key, starting_price, min_bid_increment, starting_price, ends_at).run();
+    await query(
+      `INSERT INTO auctions
+         (id, seller_id, title, description, card_image_key, starting_price, min_bid_increment, current_price, ends_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        id,
+        user.id,
+        title,
+        description ?? '',
+        card_image_key,
+        starting_price,
+        min_bid_increment,
+        starting_price,
+        endsAt,
+      ],
+    );
 
-    return json({ id, message: 'Auction created' }, 201);
-  }
+    await cacheDel(listCacheKey('active'));
+    return res.status(201).json({ id, message: 'Auction created' });
+  });
 
   // POST /auctions/:id/bid
-  if (segments.length === 3 && segments[2] === 'bid' && request.method === 'POST') {
-    const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
-
-    const auctionId = segments[1];
-    const { amount } = await request.json() as any;
-
-    const auction = await env.DB.prepare(
-      'SELECT * FROM auctions WHERE id = ? AND status = "active"'
-    ).bind(auctionId).first<any>();
-
-    if (!auction) return json({ error: 'Auction not found or ended' }, 404);
-    if (auction.seller_id === user.id) return json({ error: 'Cannot bid on your own auction' }, 400);
-    if (Date.now() / 1000 > auction.ends_at) return json({ error: 'Auction has ended' }, 400);
-    if (amount < auction.current_price + auction.min_bid_increment) {
-      return json({ error: `Minimum bid is ${auction.current_price + auction.min_bid_increment}` }, 400);
+  router.post('/:id/bid', requireAuth, async (req, res) => {
+    const user = req.user!;
+    const auctionId = req.params.id;
+    const { amount } = req.body ?? {};
+    const bidAmount = Number(amount);
+    if (!Number.isFinite(bidAmount)) {
+      return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    const bidId = crypto.randomUUID();
-    await env.DB.batch([
-      env.DB.prepare('INSERT INTO bids (id, auction_id, bidder_id, amount) VALUES (?, ?, ?, ?)')
-        .bind(bidId, auctionId, user.id, amount),
-      env.DB.prepare('UPDATE auctions SET current_price = ?, highest_bidder_id = ? WHERE id = ?')
-        .bind(amount, user.id, auctionId),
-    ]);
+    try {
+      const result = await withTransaction(async (client) => {
+        // Lock the auction row so concurrent bids are serialised.
+        const auctionRes = await client.query(
+          `SELECT * FROM auctions WHERE id = $1 AND status = 'active' FOR UPDATE`,
+          [auctionId],
+        );
+        const auction = auctionRes.rows[0];
+        if (!auction) {
+          return { status: 404, body: { error: 'Auction not found or ended' } };
+        }
+        if (auction.seller_id === user.id) {
+          return { status: 400, body: { error: 'Cannot bid on your own auction' } };
+        }
+        if (Date.now() / 1000 > Number(auction.ends_at)) {
+          return { status: 400, body: { error: 'Auction has ended' } };
+        }
+        const minBid = Number(auction.current_price) + Number(auction.min_bid_increment);
+        if (bidAmount < minBid) {
+          return { status: 400, body: { error: `Minimum bid is ${minBid}` } };
+        }
 
-    return json({ message: 'Bid placed', current_price: amount });
-  }
+        const bidId = randomUUID();
+        await client.query(
+          'INSERT INTO bids (id, auction_id, bidder_id, amount) VALUES ($1, $2, $3, $4)',
+          [bidId, auctionId, user.id, bidAmount],
+        );
+        await client.query(
+          'UPDATE auctions SET current_price = $1, highest_bidder_id = $2 WHERE id = $3',
+          [bidAmount, user.id, auctionId],
+        );
 
-  return json({ error: 'Not found' }, 404);
+        return { status: 200, body: { message: 'Bid placed', current_price: bidAmount } };
+      });
+
+      if (result.status === 200) {
+        await cacheDel(listCacheKey('active'));
+      }
+      return res.status(result.status).json(result.body);
+    } catch (err) {
+      throw err;
+    }
+  });
+
+  return router;
 }

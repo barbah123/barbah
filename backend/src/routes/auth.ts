@@ -1,49 +1,65 @@
-import { Env } from '../index';
-import { json } from '../middleware/cors';
-import { signJWT } from '../lib/jwt';
+import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
+import { query } from '../db.js';
+import { hashPassword, verifyPassword } from '../lib/password.js';
+import { signJwt, type AuthUser } from '../lib/jwt.js';
+import type { Config } from '../config.js';
 
-async function hashPassword(password: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password));
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+interface UserRow {
+  id: string;
+  email: string;
+  username: string;
+  password_hash: string;
 }
 
-export async function authRoutes(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
+export function authRouter(cfg: Config): Router {
+  const router = Router();
 
-  if (path === '/auth/register' && request.method === 'POST') {
-    const { email, username, password } = await request.json() as any;
-    if (!email || !username || !password) return json({ error: 'Missing fields' }, 400);
-
-    const id = crypto.randomUUID();
-    const password_hash = await hashPassword(password);
-
-    try {
-      await env.DB.prepare(
-        'INSERT INTO users (id, email, username, password_hash) VALUES (?, ?, ?, ?)'
-      ).bind(id, email, username, password_hash).run();
-    } catch {
-      return json({ error: 'Email or username already exists' }, 409);
+  router.post('/register', async (req, res) => {
+    const { email, username, password } = req.body ?? {};
+    if (!email || !username || !password) {
+      return res.status(400).json({ error: 'Missing fields' });
     }
 
-    const token = await signJWT({ id, email, username }, env.JWT_SECRET);
-    return json({ token, user: { id, email, username } });
-  }
+    const id = randomUUID();
+    const passwordHash = await hashPassword(password);
 
-  if (path === '/auth/login' && request.method === 'POST') {
-    const { email, password } = await request.json() as any;
-    if (!email || !password) return json({ error: 'Missing fields' }, 400);
+    try {
+      await query(
+        'INSERT INTO users (id, email, username, password_hash) VALUES ($1, $2, $3, $4)',
+        [id, email, username, passwordHash],
+      );
+    } catch (err: any) {
+      if (err?.code === '23505') {
+        return res.status(409).json({ error: 'Email or username already exists' });
+      }
+      throw err;
+    }
 
-    const password_hash = await hashPassword(password);
-    const user = await env.DB.prepare(
-      'SELECT id, email, username FROM users WHERE email = ? AND password_hash = ?'
-    ).bind(email, password_hash).first<{ id: string; email: string; username: string }>();
+    const user: AuthUser = { id, email, username };
+    const token = signJwt(user, cfg.jwtSecret, cfg.jwtExpiresIn);
+    return res.status(201).json({ token, user });
+  });
 
-    if (!user) return json({ error: 'Invalid credentials' }, 401);
+  router.post('/login', async (req, res) => {
+    const { email, password } = req.body ?? {};
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Missing fields' });
+    }
 
-    const token = await signJWT(user, env.JWT_SECRET);
-    return json({ token, user });
-  }
+    const result = await query<UserRow>(
+      'SELECT id, email, username, password_hash FROM users WHERE email = $1',
+      [email],
+    );
+    const row = result.rows[0];
+    if (!row || !(await verifyPassword(password, row.password_hash))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-  return json({ error: 'Not found' }, 404);
+    const user: AuthUser = { id: row.id, email: row.email, username: row.username };
+    const token = signJwt(user, cfg.jwtSecret, cfg.jwtExpiresIn);
+    return res.json({ token, user });
+  });
+
+  return router;
 }

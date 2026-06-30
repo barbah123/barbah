@@ -8,6 +8,8 @@ Kullanıcı sana bir fincan/tabak fotoğrafı ya da bir niyet (soru) iletir.
 Fotoğraf varsa telvedeki şekilleri (kuş, yol, yılan, kalp, göz, dağ, balık, gemi vb.) yorumla.
 Akıcı, samimi, umut veren ve detaylı bir fal anlat. Aşk, kariyer/para, sağlık ve yakın gelecek
 başlıklarına değin. Falı paragraflar halinde, doğal bir dille yaz.
+Yorumunu yaparken kişinin burcu ve günün astrolojik atmosferini (ay evresi, genel gezegen ve
+burç etkileri) telve sembolleriyle harmanla; uygun yerlerde günün enerjisine kısaca değin.
 Kesin tıbbi, hukuki veya finansal tavsiye verme. Bunun eğlence amaçlı olduğunu unutma.
 Her zaman Türkçe yanıt ver. Yaklaşık 220-350 kelime yaz.`;
 
@@ -30,6 +32,8 @@ export interface FortuneInput {
   question?: string;
   images?: FortuneImage[];
   profile?: FortuneProfile;
+  /** İstemcinin yerel "bugün" etiketi, ör. "30 Haziran 2026 Salı". */
+  todayDate?: string;
 }
 
 interface OpenAIError {
@@ -52,10 +56,17 @@ function profileNote(p?: FortuneProfile): string {
   return `\n\nFal baktıran kişi hakkında bilgiler (falı bunlara göre kişiselleştir, uygun yerlerde burcuna/medeni durumuna değin): ${parts.join('; ')}.`;
 }
 
-export async function generateFortune(input: FortuneInput): Promise<string> {
-  const { apiKey, model, question, images, profile } = input;
+// Bugünün tarihini ve astroloji yönergesini prompta ekle.
+function dateNote(todayDate?: string): string {
+  const t = (todayDate ?? '').trim().slice(0, 60);
+  if (!t) return '';
+  return `\n\nBugünün tarihi: ${t}. Falı yorumlarken bu günün astrolojik enerjisini de hesaba kat.`;
+}
 
-  const systemPrompt = SYSTEM_PROMPT + profileNote(profile);
+export async function generateFortune(input: FortuneInput): Promise<string> {
+  const { apiKey, model, question, images, profile, todayDate } = input;
+
+  const systemPrompt = SYSTEM_PROMPT + profileNote(profile) + dateNote(todayDate);
 
   const userContent: any[] = [];
   if (images && images.length) {

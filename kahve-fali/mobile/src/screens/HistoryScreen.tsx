@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, Reading } from '../api';
-import { colors, timeAgo } from '../theme';
+import { colors, formatDateTime } from '../theme';
 
 export default function HistoryScreen({
   onBack,
@@ -47,7 +47,7 @@ export default function HistoryScreen({
         <Pressable onPress={onBack} hitSlop={10}>
           <Text style={styles.back}>‹ Geri</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>Geçmiş Fallar</Text>
+        <Text style={styles.headerTitle}>Eski Fallarım</Text>
         <View style={{ width: 54 }} />
       </View>
 
@@ -73,7 +73,7 @@ export default function HistoryScreen({
             <Pressable style={styles.item} onPress={() => onOpen(item)}>
               <View style={styles.itemTop}>
                 <Text style={styles.itemType}>{item.type === 'photo' ? '📷' : '✍️'}</Text>
-                <Text style={styles.itemTime}>{timeAgo(item.created_at)}</Text>
+                <Text style={styles.itemTime}>{formatDateTime(item.created_at)}</Text>
               </View>
               {item.question ? <Text style={styles.itemQuestion} numberOfLines={1}>{item.question}</Text> : null}
               <Text style={styles.itemPreview} numberOfLines={2}>

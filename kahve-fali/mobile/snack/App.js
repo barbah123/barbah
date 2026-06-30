@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.4.0';
+const APP_VERSION = 'v1.5.0';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -73,13 +73,19 @@ async function api(path, options = {}) {
   return data;
 }
 
-function timeAgo(sec) {
-  const m = Math.floor((Date.now() - sec * 1000) / 60000);
-  if (m < 1) return 'az önce';
-  if (m < 60) return `${m} dk önce`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h} sa önce`;
-  return `${Math.floor(h / 24)} gün önce`;
+const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+const TR_DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+
+function formatDateTime(sec) {
+  const d = new Date(sec * 1000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${d.getFullYear()}, ${hh}:${mm}`;
+}
+
+function todayLabel() {
+  const d = new Date();
+  return `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${d.getFullYear()} ${TR_DAYS[d.getDay()]}`;
 }
 
 export default function App() {
@@ -228,6 +234,7 @@ function Home({ onSettings, onHistory, onResult }) {
         method: 'POST',
         body: JSON.stringify({
           question: question.trim() || undefined,
+          today: todayLabel(),
           images: mode === 'photo' ? PHOTO_SLOTS.map((s, i) => ({ label: s.label, base64: photos[i].b64 })) : undefined,
         }),
       });
@@ -312,7 +319,7 @@ function Reading({ reading, onBack }) {
         ) : null}
         <View style={styles.resultCard}><Text style={styles.result}>{reading.result}</Text></View>
         <Text style={styles.meta}>
-          {reading.type === 'photo' ? '📷 Fotoğraflı' : '✍️ Yazılı'} · {reading.model} · {timeAgo(reading.created_at)}
+          {reading.type === 'photo' ? '📷 Fotoğraflı' : '✍️ Yazılı'} · {reading.model} · {formatDateTime(reading.created_at)}
         </Text>
       </ScrollView>
     </SafeAreaView>
@@ -330,7 +337,7 @@ function History({ onBack, onOpen }) {
 
   return (
     <SafeAreaView style={styles.flex}>
-      <TopBar title="Geçmiş Fallar" onBack={onBack} />
+      <TopBar title="Eski Fallarım" onBack={onBack} />
       {items === null ? (
         <View style={styles.center}><ActivityIndicator size="large" color={C.primary} /></View>
       ) : (
@@ -344,7 +351,7 @@ function History({ onBack, onOpen }) {
             <Pressable style={styles.item} onPress={() => onOpen(item)}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                 <Text>{item.type === 'photo' ? '📷' : '✍️'}</Text>
-                <Text style={{ color: C.sub, fontSize: 12 }}>{timeAgo(item.created_at)}</Text>
+                <Text style={{ color: C.sub, fontSize: 11 }}>{formatDateTime(item.created_at)}</Text>
               </View>
               {item.question ? <Text style={{ color: C.accent, fontStyle: 'italic', marginBottom: 4 }} numberOfLines={1}>{item.question}</Text> : null}
               <Text style={{ color: C.text, lineHeight: 21 }} numberOfLines={2}>{item.result}</Text>

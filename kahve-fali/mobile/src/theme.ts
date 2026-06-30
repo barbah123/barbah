@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.4.0';
+export const APP_VERSION = 'v1.5.0';
 
 // Kahve temalı koyu palet
 export const colors = {
@@ -24,4 +24,24 @@ export function timeAgo(unixSeconds: number): string {
   if (h < 24) return `${h} sa önce`;
   const d = Math.floor(h / 24);
   return `${d} gün önce`;
+}
+
+const TR_MONTHS = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+];
+const TR_DAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+
+// "30 Haziran 2026, 22:15" (cihazın yerel saatiyle)
+export function formatDateTime(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${d.getFullYear()}, ${hh}:${mm}`;
+}
+
+// Bugünün modele gönderilecek etiketi: "30 Haziran 2026 Salı"
+export function todayLabel(): string {
+  const d = new Date();
+  return `${d.getDate()} ${TR_MONTHS[d.getMonth()]} ${d.getFullYear()} ${TR_DAYS[d.getDay()]}`;
 }

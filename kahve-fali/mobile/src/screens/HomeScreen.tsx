@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { api, Reading } from '../api';
-import { colors } from '../theme';
+import { colors, todayLabel } from '../theme';
 
 type Mode = 'photo' | 'text';
 type Slot = { uri: string; b64: string } | null;
@@ -115,6 +115,7 @@ export default function HomeScreen({
     try {
       const reading = await api.fortune.create({
         question: question.trim() || undefined,
+        today: todayLabel(),
         images:
           mode === 'photo'
             ? PHOTO_SLOTS.map((s, i) => ({ label: s.label, base64: photos[i]!.b64 }))

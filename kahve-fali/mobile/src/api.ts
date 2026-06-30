@@ -108,6 +108,7 @@ export const api = {
     create: (data: {
       question?: string;
       images?: { label: string; base64: string }[];
+      today?: string;
     }): Promise<Reading> => request('/fortune', { method: 'POST', body: JSON.stringify(data) }),
   },
 };

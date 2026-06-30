@@ -23,9 +23,14 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
     question?: string;
     image_base64?: string; // eski tekli format (geriye dönük uyumluluk)
     images?: { label?: string; base64?: string }[];
+    today?: string;
   };
 
   const question = (body.question ?? '').trim().slice(0, 500) || undefined;
+  // İstemcinin yerel "bugün" etiketi; yoksa sunucu tarihine düş (UTC).
+  const todayDate =
+    (typeof body.today === 'string' && body.today.trim().slice(0, 60)) ||
+    new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
 
   // Yeni çoklu format; yoksa eski tekli image_base64'e düş.
   const rawImages = Array.isArray(body.images)
@@ -70,6 +75,7 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
       model,
       question,
       images,
+      todayDate,
       profile: {
         birthDate: settings.birth_date,
         gender: settings.gender,

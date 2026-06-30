@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Reading } from '../api';
-import { colors, timeAgo } from '../theme';
+import { colors, formatDateTime } from '../theme';
 
 export default function ReadingScreen({
   reading,
@@ -36,7 +36,7 @@ export default function ReadingScreen({
 
         <Text style={styles.meta}>
           {reading.type === 'photo' ? '📷 Fotoğraflı' : '✍️ Yazılı'} · {reading.model} ·{' '}
-          {timeAgo(reading.created_at)}
+          {formatDateTime(reading.created_at)}
         </Text>
       </ScrollView>
     </View>

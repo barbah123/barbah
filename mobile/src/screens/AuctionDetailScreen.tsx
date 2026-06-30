@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { api } from '../api';
-import { colors } from '../theme';
+import { colors, endDateLabel } from '../theme';
 import Thumb from '../components/Thumb';
 import Countdown from '../components/Countdown';
 
@@ -25,6 +25,7 @@ type AuctionDetail = {
   seller_username: string;
   bids: Bid[];
   favorited?: boolean;
+  watchers?: number;
 };
 
 export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
@@ -146,24 +147,39 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View style={styles.heroWrap}>
-          <Thumb imageKey={auction.card_image_key} size={140} />
+          <Thumb imageKey={auction.card_image_key} size={220} />
         </View>
         <Text style={styles.detailTitle}>{auction.title}</Text>
-        <Text style={styles.seller}>@{auction.seller_username}</Text>
-        {!!auction.description && <Text style={styles.detailDesc}>{auction.description}</Text>}
-
-        <View style={styles.priceBox}>
-          <View>
-            <Text style={styles.priceLabel}>Güncel fiyat</Text>
-            <Text style={styles.priceBig}>{auction.current_price} ₺</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.priceLabel}>Kalan süre</Text>
-            <Countdown endsAt={auction.ends_at} prefix="⏱ " style={styles.timeBig} />
-          </View>
+        <View style={styles.metaRow}>
+          <Text style={styles.seller}>@{auction.seller_username}</Text>
+          <Text style={styles.watchers}>👁 {auction.watchers ?? 0} izliyor</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Teklifler ({auction.bids?.length ?? 0})</Text>
+        <View style={styles.bidCard}>
+          <Text style={styles.bidCardLabel}>{ended ? 'Kazanan teklif' : 'Güncel teklif'}</Text>
+          <View style={styles.bidPriceRow}>
+            <Text style={styles.bidPrice}>{auction.current_price} ₺</Text>
+            <Text style={styles.bidCount}>{auction.bids?.length ?? 0} teklif</Text>
+          </View>
+          <View style={styles.cardDivider} />
+          {ended ? (
+            <Text style={styles.endedText}>Açık artırma sona erdi · {endDateLabel(auction.ends_at)}</Text>
+          ) : (
+            <View style={styles.timeRow}>
+              <Countdown endsAt={auction.ends_at} prefix="⏱ " style={styles.timeLeft} />
+              <Text style={styles.endsAt}>Bitiş: {endDateLabel(auction.ends_at)}</Text>
+            </View>
+          )}
+        </View>
+
+        {!!auction.description && (
+          <>
+            <Text style={styles.sectionTitle}>Açıklama</Text>
+            <Text style={styles.detailDesc}>{auction.description}</Text>
+          </>
+        )}
+
+        <Text style={styles.sectionTitle}>Teklif geçmişi ({auction.bids?.length ?? 0})</Text>
         {auction.bids && auction.bids.length > 0 ? (
           auction.bids.map((b, i) => (
             <View key={i} style={styles.bidRow}>
@@ -234,13 +250,13 @@ const styles = StyleSheet.create({
   badgeEnded: { backgroundColor: colors.card2 },
   badgeText: { color: colors.good, fontSize: 12, fontWeight: '700' },
   heart: { fontSize: 24, color: colors.sub },
-  heroWrap: { alignItems: 'center', marginBottom: 16 },
-  detailTitle: { fontSize: 24, fontWeight: '800', color: colors.text, textAlign: 'center' },
-  seller: { fontSize: 13, color: colors.sub, marginTop: 2, textAlign: 'center' },
-  detailDesc: { fontSize: 15, color: colors.sub, marginTop: 12, lineHeight: 21 },
-  priceBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  heroWrap: { alignItems: 'center', marginBottom: 16, backgroundColor: colors.card, borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: colors.border },
+  detailTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  seller: { fontSize: 13, color: colors.sub },
+  watchers: { fontSize: 13, color: colors.sub },
+  detailDesc: { fontSize: 15, color: colors.sub, marginTop: 8, lineHeight: 21 },
+  bidCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
     padding: 16,
@@ -248,9 +264,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  priceLabel: { fontSize: 12, color: colors.sub },
-  priceBig: { fontSize: 28, fontWeight: '800', color: colors.accent, marginTop: 2 },
-  timeBig: { fontSize: 18, fontWeight: '700', color: colors.text, marginTop: 2 },
+  bidCardLabel: { fontSize: 13, color: colors.sub },
+  bidPriceRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4 },
+  bidPrice: { fontSize: 32, fontWeight: '800', color: colors.accent },
+  bidCount: { fontSize: 14, color: colors.sub, fontWeight: '600' },
+  cardDivider: { height: 1, backgroundColor: colors.border, marginVertical: 14 },
+  timeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  timeLeft: { fontSize: 17, fontWeight: '700', color: colors.text },
+  endsAt: { fontSize: 13, color: colors.sub },
+  endedText: { fontSize: 14, color: colors.sub },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginTop: 24, marginBottom: 8 },
   sub: { color: colors.sub, fontSize: 14 },
   bidRow: {

@@ -19,7 +19,14 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.14.0';
+const APP_VERSION = 'v0.15.0';
+
+const MONTHS_TR = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+function endDateLabel(endsAt) {
+  const d = new Date(endsAt * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getDate() + ' ' + MONTHS_TR[d.getMonth()] + ', ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
 
 const DURATIONS = [
   { label: '6 saat', h: 6 },
@@ -312,23 +319,38 @@ function DetailScreen({ id, onBack }) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <View style={st.heroWrap}><Thumb imageKey={auction.card_image_key} size={140} /></View>
+        <View style={st.heroWrap}><Thumb imageKey={auction.card_image_key} size={220} /></View>
         <Text style={st.detailTitle}>{auction.title}</Text>
-        <Text style={st.seller}>@{auction.seller_username}</Text>
-        {!!auction.description && <Text style={st.detailDesc}>{auction.description}</Text>}
-
-        <View style={st.priceBox}>
-          <View>
-            <Text style={st.priceLabel}>Güncel fiyat</Text>
-            <Text style={st.priceBig}>{auction.current_price} ₺</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={st.priceLabel}>Kalan süre</Text>
-            <Countdown endsAt={auction.ends_at} prefix="⏱ " style={st.timeBig} />
-          </View>
+        <View style={st.metaRow}>
+          <Text style={st.seller}>@{auction.seller_username}</Text>
+          <Text style={st.watchers}>👁 {auction.watchers || 0} izliyor</Text>
         </View>
 
-        <Text style={st.sectionTitle}>Teklifler ({auction.bids ? auction.bids.length : 0})</Text>
+        <View style={st.bidCard}>
+          <Text style={st.bidCardLabel}>{ended ? 'Kazanan teklif' : 'Güncel teklif'}</Text>
+          <View style={st.bidPriceRow}>
+            <Text style={st.bidPrice}>{auction.current_price} ₺</Text>
+            <Text style={st.bidCount}>{auction.bids ? auction.bids.length : 0} teklif</Text>
+          </View>
+          <View style={st.cardDivider} />
+          {ended ? (
+            <Text style={st.endedText}>Açık artırma sona erdi · {endDateLabel(auction.ends_at)}</Text>
+          ) : (
+            <View style={st.timeRow}>
+              <Countdown endsAt={auction.ends_at} prefix="⏱ " style={st.timeLeft} />
+              <Text style={st.endsAt}>Bitiş: {endDateLabel(auction.ends_at)}</Text>
+            </View>
+          )}
+        </View>
+
+        {!!auction.description && (
+          <>
+            <Text style={st.sectionTitle}>Açıklama</Text>
+            <Text style={st.detailDesc}>{auction.description}</Text>
+          </>
+        )}
+
+        <Text style={st.sectionTitle}>Teklif geçmişi ({auction.bids ? auction.bids.length : 0})</Text>
         {auction.bids && auction.bids.length > 0 ? auction.bids.map((b, i) => (
           <View key={i} style={st.bidRow}>
             <Text style={st.bidUser}>@{b.username}</Text>
@@ -674,13 +696,21 @@ const st = StyleSheet.create({
   empty: { textAlign: 'center', color: C.sub, fontSize: 15, lineHeight: 22 },
   emptyWrap: { flexGrow: 1, justifyContent: 'center', padding: 24 },
 
-  heroWrap: { alignItems: 'center', marginBottom: 16 },
-  detailTitle: { fontSize: 24, fontWeight: '800', color: C.text, textAlign: 'center' },
-  detailDesc: { fontSize: 15, color: C.sub, marginTop: 12, lineHeight: 21 },
-  priceBox: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.card, borderRadius: 16, padding: 16, marginTop: 16, borderWidth: 1, borderColor: C.border },
-  priceLabel: { fontSize: 12, color: C.sub },
-  priceBig: { fontSize: 28, fontWeight: '800', color: C.accent, marginTop: 2 },
-  timeBig: { fontSize: 18, fontWeight: '700', color: C.text, marginTop: 2 },
+  heroWrap: { alignItems: 'center', marginBottom: 16, backgroundColor: C.card, borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: C.border },
+  detailTitle: { fontSize: 22, fontWeight: '800', color: C.text },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  watchers: { fontSize: 13, color: C.sub },
+  detailDesc: { fontSize: 15, color: C.sub, marginTop: 8, lineHeight: 21 },
+  bidCard: { backgroundColor: C.card, borderRadius: 16, padding: 16, marginTop: 16, borderWidth: 1, borderColor: C.border },
+  bidCardLabel: { fontSize: 13, color: C.sub },
+  bidPriceRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 4 },
+  bidPrice: { fontSize: 32, fontWeight: '800', color: C.accent },
+  bidCount: { fontSize: 14, color: C.sub, fontWeight: '600' },
+  cardDivider: { height: 1, backgroundColor: C.border, marginVertical: 14 },
+  timeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  timeLeft: { fontSize: 17, fontWeight: '700', color: C.text },
+  endsAt: { fontSize: 13, color: C.sub },
+  endedText: { fontSize: 14, color: C.sub },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginTop: 24, marginBottom: 8 },
   sub: { color: C.sub, fontSize: 14 },
   bidRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },

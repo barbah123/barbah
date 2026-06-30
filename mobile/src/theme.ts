@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v0.14.0';
+export const APP_VERSION = 'v0.15.0';
 
 export const colors = {
   bg: '#0f172a',
@@ -13,6 +13,14 @@ export const colors = {
   good: '#34d399',
   border: '#334155',
 };
+
+const MONTHS_TR = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+
+export function endDateLabel(endsAt: number): string {
+  const d = new Date(endsAt * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getDate()} ${MONTHS_TR[d.getMonth()]}, ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 export function timeLeft(endsAt: number): string {
   const ms = endsAt * 1000 - Date.now();

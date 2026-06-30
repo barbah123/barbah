@@ -37,6 +37,7 @@ const { Snack } = require('snack-sdk');
     description: 'Pokemon kart acik artirma - canli backend',
     sdkVersion: '54.0.0',
     files: { 'App.js': { type: 'CODE', contents: APP_JS } },
+    dependencies: { 'expo-image-picker': { version: '~17.0.11' } },
     user: { accessToken: token },
   });
 

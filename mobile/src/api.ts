@@ -2,8 +2,10 @@ import * as SecureStore from 'expo-secure-store';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://pokemon-auction-api.barbah.workers.dev';
 
+const TOKEN_KEY = 'auth_token';
+
 async function getToken(): Promise<string | null> {
-  return SecureStore.getItemAsync('auth_token');
+  return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -23,10 +25,18 @@ async function request(path: string, options: RequestInit = {}) {
 
 export const api = {
   auth: {
-    register: (email: string, username: string, password: string) =>
-      request('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) }),
-    login: (email: string, password: string) =>
-      request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+    register: async (email: string, username: string, password: string) => {
+      const data = await request('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) });
+      await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+      return data;
+    },
+    login: async (email: string, password: string) => {
+      const data = await request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+      return data;
+    },
+    logout: () => SecureStore.deleteItemAsync(TOKEN_KEY),
+    hasSession: async () => !!(await SecureStore.getItemAsync(TOKEN_KEY)),
   },
   auctions: {
     list: (status = 'active') => request(`/auctions?status=${status}`),

@@ -1,20 +1,51 @@
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { api } from './src/api';
+import AuthScreen from './src/screens/AuthScreen';
+import AuctionsScreen from './src/screens/AuctionsScreen';
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.auth.hasSession().then(setSignedIn).catch(() => setSignedIn(false));
+  }, []);
+
+  if (signedIn === null) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
+
+  async function handleLogout() {
+    await api.auth.logout();
+    setSignedIn(false);
+  }
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
+    <SafeAreaProvider>
       <StatusBar style="auto" />
-    </View>
+      <NavigationContainer>
+        <Stack.Navigator>
+          {signedIn ? (
+            <Stack.Screen name="Auctions" options={{ headerShown: false }}>
+              {() => <AuctionsScreen onLogout={handleLogout} />}
+            </Stack.Screen>
+          ) : (
+            <Stack.Screen name="Auth" options={{ headerShown: false }}>
+              {() => <AuthScreen onAuthed={() => setSignedIn(true)} />}
+            </Stack.Screen>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

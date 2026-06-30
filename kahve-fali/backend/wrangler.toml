@@ -1,6 +1,7 @@
 name = "kahve-fali-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
+account_id = "3e1b8b1eb88b15ef011e981b60b05e77"
 
 # JWT_SECRET ve ENCRYPTION_KEY secret olarak ayarlanmalı:
 #   wrangler secret put JWT_SECRET

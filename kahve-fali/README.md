@@ -86,7 +86,8 @@ npm start          # Expo Go ile QR okutun
 1. Uygulamada kayıt olun / giriş yapın.
 2. **⚙️ Ayarlar** → OpenAI API anahtarınızı girin (`sk-...`), isterseniz **Bağlantıyı Test Et**,
    sonra **Kaydet**. Anahtarı [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-   adresinden alabilirsiniz.
+   adresinden alabilirsiniz. Adım adım rehber: [docs/OPENAI_API_ANAHTARI_REHBERI.md](docs/OPENAI_API_ANAHTARI_REHBERI.md)
+   (aynı rehber uygulamada **Ayarlar → 📘 Adım adım rehber** düğmesindedir).
 3. Ana ekranda **📷 Fotoğrafla** sekmesinden fincan fotoğrafı çekin/seçin veya
    **✍️ Yazarak** sekmesinden niyetinizi yazın, **🔮 Falıma Bak**'a dokunun.
 4. Geçmiş fallarınıza **📜** simgesinden ulaşın.

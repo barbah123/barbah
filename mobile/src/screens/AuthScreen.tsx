@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -42,10 +43,16 @@ export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Text style={styles.logo}>⚡</Text>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.logo}>⚡</Text>
       <Text style={styles.title}>Pokémon Açık Artırma</Text>
       <Text style={styles.subtitle}>{isRegister ? 'Hesap oluştur' : 'Tekrar hoş geldin'}</Text>
 
@@ -97,13 +104,15 @@ export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
         </Text>
       </Pressable>
 
-      <Text style={styles.version}>{APP_VERSION}</Text>
+        <Text style={styles.version}>{APP_VERSION}</Text>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: colors.bg },
+  flex: { flex: 1, backgroundColor: colors.bg },
+  content: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   logo: { fontSize: 56, textAlign: 'center' },
   title: { fontSize: 26, fontWeight: '800', textAlign: 'center', color: colors.text, marginTop: 8 },
   subtitle: { fontSize: 15, textAlign: 'center', color: colors.sub, marginTop: 4, marginBottom: 24 },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api';
 import { colors, timeLeft } from '../theme';
 import Thumb from '../components/Thumb';
@@ -26,9 +27,11 @@ type Auction = {
 export default function AuctionsScreen({
   onLogout,
   onOpen,
+  onCreate,
 }: {
   onLogout: () => void;
   onOpen: (id: string) => void;
+  onCreate: () => void;
 }) {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,9 +50,11 @@ export default function AuctionsScreen({
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   if (loading) {
     return (
@@ -66,9 +71,14 @@ export default function AuctionsScreen({
           <Text style={styles.headerTitle}>Açık Artırmalar</Text>
           <Text style={styles.headerSub}>{auctions.length} aktif ilan</Text>
         </View>
-        <Pressable onPress={onLogout} hitSlop={8} style={styles.logoutBtn}>
-          <Text style={styles.logout}>Çıkış</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Pressable onPress={onCreate} hitSlop={8} style={styles.createBtn}>
+            <Text style={styles.createText}>+ Yeni</Text>
+          </Pressable>
+          <Pressable onPress={onLogout} hitSlop={8} style={styles.logoutBtn}>
+            <Text style={styles.logout}>Çıkış</Text>
+          </Pressable>
+        </View>
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}
@@ -127,6 +137,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 20, fontWeight: '800', color: colors.text },
   headerSub: { fontSize: 12, color: colors.sub, marginTop: 2 },
+  createBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primary, borderRadius: 8, marginRight: 8 },
+  createText: { color: colors.primaryText, fontSize: 14, fontWeight: '700' },
   logoutBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.card, borderRadius: 8 },
   logout: { color: colors.danger, fontSize: 14, fontWeight: '700' },
   card: {

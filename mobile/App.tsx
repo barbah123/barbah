@@ -9,6 +9,7 @@ import { colors } from './src/theme';
 import AuthScreen from './src/screens/AuthScreen';
 import AuctionsScreen from './src/screens/AuctionsScreen';
 import AuctionDetailScreen from './src/screens/AuctionDetailScreen';
+import CreateAuctionScreen from './src/screens/CreateAuctionScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -44,6 +45,7 @@ export default function App() {
                   <AuctionsScreen
                     onLogout={handleLogout}
                     onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
+                    onCreate={() => navigation.navigate('CreateAuction')}
                   />
                 )}
               </Stack.Screen>
@@ -54,6 +56,9 @@ export default function App() {
                     onBack={() => navigation.goBack()}
                   />
                 )}
+              </Stack.Screen>
+              <Stack.Screen name="CreateAuction">
+                {({ navigation }) => <CreateAuctionScreen onDone={() => navigation.goBack()} />}
               </Stack.Screen>
             </>
           ) : (

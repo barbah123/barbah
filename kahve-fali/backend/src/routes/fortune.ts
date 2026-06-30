@@ -7,6 +7,9 @@ import { generateFortune } from '../lib/openai';
 interface SettingsRow {
   openai_api_key_encrypted: string | null;
   model: string;
+  birth_date: string | null;
+  gender: string | null;
+  marital_status: string | null;
 }
 
 export async function fortuneRoutes(request: Request, env: Env): Promise<Response> {
@@ -30,7 +33,7 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
   }
 
   const settings = await env.DB.prepare(
-    'SELECT openai_api_key_encrypted, model FROM user_settings WHERE user_id = ?'
+    'SELECT openai_api_key_encrypted, model, birth_date, gender, marital_status FROM user_settings WHERE user_id = ?'
   ).bind(user.id).first<SettingsRow>();
 
   if (!settings?.openai_api_key_encrypted) {
@@ -48,7 +51,17 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
 
   let result: string;
   try {
-    result = await generateFortune({ apiKey, model, question, imageBase64 });
+    result = await generateFortune({
+      apiKey,
+      model,
+      question,
+      imageBase64,
+      profile: {
+        birthDate: settings.birth_date,
+        gender: settings.gender,
+        maritalStatus: settings.marital_status,
+      },
+    });
   } catch (e: any) {
     return json({ error: e?.message ?? 'Fal üretilemedi' }, 502);
   }

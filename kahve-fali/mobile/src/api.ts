@@ -44,10 +44,24 @@ export interface Reading {
   created_at: number;
 }
 
+export type Gender = 'kadin' | 'erkek' | 'diger';
+export type MaritalStatus = 'bekar' | 'evli' | 'iliskisi_var' | 'diger';
+
 export interface Settings {
   has_api_key: boolean;
   key_last4: string | null;
   model: string;
+  birth_date: string | null;
+  gender: Gender | null;
+  marital_status: MaritalStatus | null;
+}
+
+export interface SettingsUpdate {
+  openai_api_key?: string;
+  model?: string;
+  birth_date?: string | null;
+  gender?: Gender | null;
+  marital_status?: MaritalStatus | null;
 }
 
 export const api = {
@@ -77,7 +91,7 @@ export const api = {
   },
   settings: {
     get: (): Promise<Settings> => request('/me/settings'),
-    update: (data: { openai_api_key?: string; model?: string }): Promise<Settings> =>
+    update: (data: SettingsUpdate): Promise<Settings> =>
       request('/me/settings', { method: 'PUT', body: JSON.stringify(data) }),
     test: (openai_api_key: string): Promise<{ valid: boolean }> =>
       request('/me/settings/test', { method: 'POST', body: JSON.stringify({ openai_api_key }) }),

@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.2.0';
+const APP_VERSION = 'v1.3.0';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -30,6 +30,26 @@ const GUIDE_STEPS = [
   { title: 'Anahtarı kopyala', body: 'Oluşan ve "sk-" ile başlayan anahtarı hemen kopyala. ⚠️ Bu anahtar yalnızca bir kez gösterilir; pencereyi kapatınca tekrar göremezsin.' },
   { title: 'Buraya yapıştır ve kaydet', body: 'Bu ekrandaki "OpenAI API Anahtarı" alanına yapıştır → "Bağlantıyı Test Et" (yeşil ✅) → "Kaydet". Hepsi bu!' },
 ];
+
+const GENDERS = [
+  { v: 'kadin', l: 'Kadın' },
+  { v: 'erkek', l: 'Erkek' },
+  { v: 'diger', l: 'Belirtmek istemiyorum' },
+];
+const MARITALS = [
+  { v: 'bekar', l: 'Bekâr' },
+  { v: 'evli', l: 'Evli' },
+  { v: 'iliskisi_var', l: 'İlişkim var' },
+  { v: 'diger', l: 'Belirtmek istemiyorum' },
+];
+
+function formatBirthInput(s) {
+  const d = s.replace(/\D/g, '').slice(0, 8);
+  let out = d.slice(0, 4);
+  if (d.length > 4) out += '-' + d.slice(4, 6);
+  if (d.length > 6) out += '-' + d.slice(6, 8);
+  return out;
+}
 
 let TOKEN = null;
 
@@ -322,6 +342,9 @@ function Settings({ onBack, onLogout }) {
   const [testing, setTesting] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [clipKey, setClipKey] = useState(null);
+  const [birthDate, setBirthDate] = useState('');
+  const [gender, setGender] = useState(null);
+  const [marital, setMarital] = useState(null);
 
   const checkClipboard = useCallback(async () => {
     try {
@@ -337,8 +360,10 @@ function Settings({ onBack, onLogout }) {
   }, [checkClipboard]);
 
   useEffect(() => {
-    api('/me/settings').then((d) => { setS(d); setModel(d.model); })
-      .catch(() => setS({ has_api_key: false, key_last4: null, model: 'gpt-4o-mini' }));
+    api('/me/settings').then((d) => {
+      setS(d); setModel(d.model);
+      setBirthDate(d.birth_date || ''); setGender(d.gender || null); setMarital(d.marital_status || null);
+    }).catch(() => setS({ has_api_key: false, key_last4: null, model: 'gpt-4o-mini', birth_date: null, gender: null, marital_status: null }));
   }, []);
 
   async function test() {
@@ -353,7 +378,7 @@ function Settings({ onBack, onLogout }) {
   async function save() {
     setSaving(true);
     try {
-      const payload = { model };
+      const payload = { model, birth_date: birthDate.trim() || null, gender, marital_status: marital };
       if (apiKey.trim()) payload.openai_api_key = apiKey.trim();
       const updated = await api('/me/settings', { method: 'PUT', body: JSON.stringify(payload) });
       setS(updated); setApiKey('');
@@ -409,6 +434,33 @@ function Settings({ onBack, onLogout }) {
               <Text style={{ color: C.sub, fontSize: 13, marginTop: 10, lineHeight: 19 }}>
                 Fotoğraflı fal için görsel destekli bir model gerekir (gpt-4o-mini önerilir).
               </Text>
+
+              <Text style={[styles.section, { marginTop: 28 }]}>Profil (opsiyonel)</Text>
+              <Text style={{ color: C.sub, fontSize: 13, marginBottom: 4, lineHeight: 19 }}>
+                Doldurursan falın sana göre kişiselleştirilir (burç, medeni durum vb.).
+              </Text>
+
+              <Text style={[styles.label, { marginTop: 12 }]}>Doğum tarihi</Text>
+              <TextInput style={styles.input} placeholder="YYYY-AA-GG (örn. 1990-05-21)" placeholderTextColor={C.sub}
+                keyboardType="number-pad" maxLength={10} value={birthDate} onChangeText={(t) => setBirthDate(formatBirthInput(t))} />
+
+              <Text style={[styles.label, { marginTop: 12 }]}>Cinsiyet</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {GENDERS.map((g) => (
+                  <Pressable key={g.v} style={[styles.chip, gender === g.v && styles.chipActive]} onPress={() => setGender(gender === g.v ? null : g.v)}>
+                    <Text style={[styles.chipText, gender === g.v && styles.chipTextActive]}>{g.l}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={[styles.label, { marginTop: 12 }]}>Medeni durum</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {MARITALS.map((m) => (
+                  <Pressable key={m.v} style={[styles.chip, marital === m.v && styles.chipActive]} onPress={() => setMarital(marital === m.v ? null : m.v)}>
+                    <Text style={[styles.chipText, marital === m.v && styles.chipTextActive]}>{m.l}</Text>
+                  </Pressable>
+                ))}
+              </View>
 
               <Pressable style={({ pressed }) => [styles.button, { marginTop: 28 }, (saving || pressed) && styles.dim]} onPress={save} disabled={saving}>
                 {saving ? <ActivityIndicator color={C.primaryText} /> : <Text style={styles.buttonText}>Kaydet</Text>}

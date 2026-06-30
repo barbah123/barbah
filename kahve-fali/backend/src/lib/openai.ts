@@ -11,20 +11,45 @@ başlıklarına değin. Falı paragraflar halinde, doğal bir dille yaz.
 Kesin tıbbi, hukuki veya finansal tavsiye verme. Bunun eğlence amaçlı olduğunu unutma.
 Her zaman Türkçe yanıt ver. Yaklaşık 220-350 kelime yaz.`;
 
+export interface FortuneProfile {
+  birthDate?: string | null;
+  gender?: string | null;
+  maritalStatus?: string | null;
+}
+
 export interface FortuneInput {
   apiKey: string;
   model: string;
   question?: string;
   /** Ham base64 (data URL öneki olmadan) JPEG/PNG görsel. */
   imageBase64?: string;
+  profile?: FortuneProfile;
 }
 
 interface OpenAIError {
-  error?: { message?: string };
+  error?: { message?: string; code?: string; type?: string };
+}
+
+const GENDER_TR: Record<string, string> = { kadin: 'kadın', erkek: 'erkek', diger: 'belirtilmemiş' };
+const MARITAL_TR: Record<string, string> = {
+  bekar: 'bekâr', evli: 'evli', iliskisi_var: 'bir ilişkisi var', diger: 'belirtilmemiş',
+};
+
+// Profil bilgisini falcıya iletilecek kısa bir nota dönüştür.
+function profileNote(p?: FortuneProfile): string {
+  if (!p) return '';
+  const parts: string[] = [];
+  if (p.birthDate) parts.push(`doğum tarihi ${p.birthDate} (burcunu ve yaşını buradan çıkarabilirsin)`);
+  if (p.gender && GENDER_TR[p.gender]) parts.push(`cinsiyet: ${GENDER_TR[p.gender]}`);
+  if (p.maritalStatus && MARITAL_TR[p.maritalStatus]) parts.push(`medeni durum: ${MARITAL_TR[p.maritalStatus]}`);
+  if (!parts.length) return '';
+  return `\n\nFal baktıran kişi hakkında bilgiler (falı bunlara göre kişiselleştir, uygun yerlerde burcuna/medeni durumuna değin): ${parts.join('; ')}.`;
 }
 
 export async function generateFortune(input: FortuneInput): Promise<string> {
-  const { apiKey, model, question, imageBase64 } = input;
+  const { apiKey, model, question, imageBase64, profile } = input;
+
+  const systemPrompt = SYSTEM_PROMPT + profileNote(profile);
 
   const userContent: any[] = [];
   if (imageBase64) {
@@ -54,7 +79,7 @@ export async function generateFortune(input: FortuneInput): Promise<string> {
     body: JSON.stringify({
       model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ],
       temperature: 0.9,
@@ -67,13 +92,31 @@ export async function generateFortune(input: FortuneInput): Promise<string> {
   };
 
   if (!res.ok) {
-    const msg = data.error?.message ?? `OpenAI hatası (HTTP ${res.status})`;
-    throw new Error(msg);
+    throw new Error(friendlyError(res.status, data.error));
   }
 
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error('OpenAI boş yanıt döndürdü.');
   return text;
+}
+
+// OpenAI hata yanıtını kullanıcı dostu Türkçe mesaja çevir.
+function friendlyError(status: number, err?: { message?: string; code?: string; type?: string }): string {
+  const code = (err?.code || err?.type || '').toLowerCase();
+  const raw = err?.message || '';
+  if (status === 401 || code === 'invalid_api_key') {
+    return 'OpenAI API anahtarı geçersiz görünüyor. Ayarlar bölümünden anahtarınızı kontrol edip yeniden kaydedin.';
+  }
+  if (code === 'insufficient_quota' || /quota|billing/i.test(raw)) {
+    return 'OpenAI hesabınızın bakiyesi/kotası yetersiz. platform.openai.com → Settings → Billing bölümünden kredi ekleyin (genelde 5$ yeterli). API kullanımı, ChatGPT aboneliğinden ayrı ücretlendirilir.';
+  }
+  if (status === 429 || code === 'rate_limit_exceeded') {
+    return 'OpenAI hız sınırına ulaşıldı. Lütfen birkaç saniye sonra tekrar deneyin.';
+  }
+  if (code === 'model_not_found' || /does not have access to model|model_not_found/i.test(raw)) {
+    return 'Seçili model bu anahtarla kullanılamıyor. Ayarlar\'dan farklı bir model seçin (ör. gpt-4o-mini).';
+  }
+  return raw || `OpenAI hatası (HTTP ${status})`;
 }
 
 /** API anahtarının geçerli olup olmadığını hafifçe doğrular. */

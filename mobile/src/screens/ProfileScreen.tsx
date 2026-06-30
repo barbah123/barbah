@@ -32,7 +32,7 @@ type MyBid = {
   winning: number;
 };
 
-type Tab = 'selling' | 'bids';
+type Tab = 'selling' | 'bids' | 'favorites';
 
 export default function ProfileScreen({
   onBack,
@@ -47,19 +47,22 @@ export default function ProfileScreen({
   const [tab, setTab] = useState<Tab>('selling');
   const [selling, setSelling] = useState<Selling[]>([]);
   const [bids, setBids] = useState<MyBid[]>([]);
+  const [favorites, setFavorites] = useState<Selling[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [u, s, b] = await Promise.all([
+      const [u, s, b, f] = await Promise.all([
         api.auth.currentUser(),
         api.me.auctions(),
         api.me.bids(),
+        api.me.favorites(),
       ]);
       setUser(u as any);
       setSelling(s as Selling[]);
       setBids(b as MyBid[]);
+      setFavorites(f as Selling[]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -78,7 +81,7 @@ export default function ProfileScreen({
     return item.winning ? { t: 'Önde 🟢', c: colors.good } : { t: 'Geçildin 🔴', c: colors.danger };
   }
 
-  const data = tab === 'selling' ? selling : bids;
+  const data = tab === 'selling' ? selling : tab === 'bids' ? bids : favorites;
 
   return (
     <View style={styles.screen}>
@@ -109,6 +112,9 @@ export default function ProfileScreen({
         <Pressable style={[styles.tab, tab === 'bids' && styles.tabActive]} onPress={() => setTab('bids')}>
           <Text style={[styles.tabText, tab === 'bids' && styles.tabTextActive]}>Tekliflerim ({bids.length})</Text>
         </Pressable>
+        <Pressable style={[styles.tab, tab === 'favorites' && styles.tabActive]} onPress={() => setTab('favorites')}>
+          <Text style={[styles.tabText, tab === 'favorites' && styles.tabTextActive]}>Favoriler ({favorites.length})</Text>
+        </Pressable>
       </View>
 
       {loading ? (
@@ -132,7 +138,11 @@ export default function ProfileScreen({
           }
           ListEmptyComponent={
             <Text style={styles.empty}>
-              {tab === 'selling' ? 'Henüz ilan oluşturmadın.' : 'Henüz teklif vermedin.'}
+              {tab === 'selling'
+                ? 'Henüz ilan oluşturmadın.'
+                : tab === 'bids'
+                ? 'Henüz teklif vermedin.'
+                : 'Henüz favori eklemedin.'}
             </Text>
           }
           renderItem={({ item }) => {

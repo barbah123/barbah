@@ -24,6 +24,7 @@ type AuctionDetail = {
   ends_at: number;
   seller_username: string;
   bids: Bid[];
+  favorited?: boolean;
 };
 
 export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
@@ -34,6 +35,7 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
+  const [fav, setFav] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +70,21 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
   useEffect(() => {
     if (auction) setBidAmount(auction.current_price + auction.min_bid_increment);
   }, [auction?.current_price, auction?.min_bid_increment]);
+
+  useEffect(() => {
+    if (auction) setFav(!!auction.favorited);
+  }, [auction?.favorited]);
+
+  async function toggleFav() {
+    const next = !fav;
+    setFav(next);
+    try {
+      if (next) await api.auctions.favorite(id);
+      else await api.auctions.unfavorite(id);
+    } catch {
+      setFav(!next);
+    }
+  }
 
   async function placeBid() {
     setError(null);
@@ -115,10 +132,15 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
         <Pressable onPress={onBack} hitSlop={8}>
           <Text style={styles.back}>← Geri</Text>
         </Pressable>
-        <View style={[styles.badge, ended ? styles.badgeEnded : styles.badgeLive]}>
-          <Text style={[styles.badgeText, ended && { color: colors.sub }]}>
-            {ended ? 'Bitti' : '● Canlı'}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[styles.badge, ended ? styles.badgeEnded : styles.badgeLive]}>
+            <Text style={[styles.badgeText, ended && { color: colors.sub }]}>
+              {ended ? 'Bitti' : '● Canlı'}
+            </Text>
+          </View>
+          <Pressable onPress={toggleFav} hitSlop={8} style={{ marginLeft: 12 }}>
+            <Text style={[styles.heart, fav && { color: colors.danger }]}>{fav ? '♥' : '♡'}</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -211,6 +233,7 @@ const styles = StyleSheet.create({
   badgeLive: { backgroundColor: 'rgba(52,211,153,0.15)' },
   badgeEnded: { backgroundColor: colors.card2 },
   badgeText: { color: colors.good, fontSize: 12, fontWeight: '700' },
+  heart: { fontSize: 24, color: colors.sub },
   heroWrap: { alignItems: 'center', marginBottom: 16 },
   detailTitle: { fontSize: 24, fontWeight: '800', color: colors.text, textAlign: 'center' },
   seller: { fontSize: 13, color: colors.sub, marginTop: 2, textAlign: 'center' },

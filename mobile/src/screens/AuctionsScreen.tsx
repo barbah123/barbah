@@ -29,20 +29,25 @@ export default function AuctionsScreen({
   onProfile,
   onOpen,
   onCreate,
+  onNotifications,
 }: {
   onProfile: () => void;
   onOpen: (id: string) => void;
   onCreate: () => void;
+  onNotifications: () => void;
 }) {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unread, setUnread] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      setAuctions((await api.auctions.list('active')) as Auction[]);
+      const [a, n] = await Promise.all([api.auctions.list('active'), api.me.notifications()]);
+      setAuctions(a as Auction[]);
+      setUnread((n as any).unread ?? 0);
     } catch (e: any) {
       setError(e?.message ?? 'Liste yüklenemedi');
     } finally {
@@ -75,6 +80,14 @@ export default function AuctionsScreen({
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable onPress={onCreate} hitSlop={8} style={styles.createBtn}>
             <Text style={styles.createText}>+ Yeni</Text>
+          </Pressable>
+          <Pressable onPress={onNotifications} hitSlop={8} style={styles.iconBtn}>
+            <Text style={styles.profileText}>🔔</Text>
+            {unread > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+              </View>
+            )}
           </Pressable>
           <Pressable onPress={onProfile} hitSlop={8} style={styles.profileBtn}>
             <Text style={styles.profileText}>👤</Text>
@@ -141,7 +154,10 @@ const styles = StyleSheet.create({
   createBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primary, borderRadius: 8, marginRight: 8 },
   createText: { color: colors.primaryText, fontSize: 14, fontWeight: '700' },
   profileBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, marginRight: 8 },
   profileText: { fontSize: 18 },
+  badge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  badgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

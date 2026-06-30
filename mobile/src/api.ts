@@ -57,6 +57,9 @@ export const api = {
   me: {
     auctions: () => request('/me/auctions'),
     bids: () => request('/me/bids'),
+    favorites: () => request('/me/favorites'),
+    notifications: () => request('/me/notifications'),
+    markNotificationsRead: () => request('/me/notifications/read', { method: 'POST' }),
   },
   auctions: {
     list: (status = 'active') => request(`/auctions?status=${status}`),
@@ -71,6 +74,8 @@ export const api = {
     }) => request('/auctions', { method: 'POST', body: JSON.stringify(data) }),
     bid: (id: string, amount: number) =>
       request(`/auctions/${id}/bid`, { method: 'POST', body: JSON.stringify({ amount }) }),
+    favorite: (id: string) => request(`/auctions/${id}/favorite`, { method: 'POST' }),
+    unfavorite: (id: string) => request(`/auctions/${id}/favorite`, { method: 'DELETE' }),
   },
   images: {
     upload: async (uri: string): Promise<string> => {

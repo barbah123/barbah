@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.10.0';
+const APP_VERSION = 'v0.11.0';
 
 let TOKEN = null;
 
@@ -69,6 +69,11 @@ const api = {
   },
   myAuctions: () => request('/me/auctions'),
   myBids: () => request('/me/bids'),
+  myFavorites: () => request('/me/favorites'),
+  favorite: (id) => request('/auctions/' + id + '/favorite', { method: 'POST' }),
+  unfavorite: (id) => request('/auctions/' + id + '/favorite', { method: 'DELETE' }),
+  notifications: () => request('/me/notifications'),
+  markRead: () => request('/me/notifications/read', { method: 'POST' }),
 };
 
 function fmtCountdown(endsAt, now) {
@@ -144,16 +149,19 @@ function AuthScreen({ onAuthed }) {
 }
 
 // ---------- List ----------
-function AuctionsScreen({ onProfile, onOpen, onCreate }) {
+function AuctionsScreen({ onProfile, onOpen, onCreate, onNotifications }) {
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [unread, setUnread] = useState(0);
 
   const load = useCallback(async () => {
     setError(null);
-    try { setAuctions(await api.listAuctions()); }
-    catch (e) { setError(e.message || 'Liste yüklenemedi'); }
+    try {
+      const [a, n] = await Promise.all([api.listAuctions(), api.notifications()]);
+      setAuctions(a); setUnread((n && n.unread) || 0);
+    } catch (e) { setError(e.message || 'Liste yüklenemedi'); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -169,6 +177,10 @@ function AuctionsScreen({ onProfile, onOpen, onCreate }) {
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable onPress={onCreate} hitSlop={8} style={st.createBtn}><Text style={st.createText}>+ Yeni</Text></Pressable>
+          <Pressable onPress={onNotifications} hitSlop={8} style={st.iconBtn}>
+            <Text style={st.profileText}>🔔</Text>
+            {unread > 0 && <View style={st.nbadge}><Text style={st.nbadgeText}>{unread > 9 ? '9+' : unread}</Text></View>}
+          </Pressable>
           <Pressable onPress={onProfile} hitSlop={8} style={st.profileBtn}><Text style={st.profileText}>👤</Text></Pressable>
         </View>
       </View>
@@ -206,6 +218,7 @@ function DetailScreen({ id, onBack }) {
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
   const [expired, setExpired] = useState(false);
+  const [fav, setFav] = useState(false);
 
   const load = useCallback(async () => {
     try { setAuction(await api.getAuction(id)); }
@@ -228,6 +241,13 @@ function DetailScreen({ id, onBack }) {
   useEffect(() => {
     if (auction) setBidAmount(auction.current_price + auction.min_bid_increment);
   }, [auction && auction.current_price, auction && auction.min_bid_increment]);
+
+  useEffect(() => { if (auction) setFav(!!auction.favorited); }, [auction && auction.favorited]);
+  async function toggleFav() {
+    const next = !fav; setFav(next);
+    try { if (next) await api.favorite(id); else await api.unfavorite(id); }
+    catch (e) { setFav(!next); }
+  }
 
   async function placeBid() {
     setError(null); setMsg(null);
@@ -253,8 +273,13 @@ function DetailScreen({ id, onBack }) {
     <View style={st.screen}>
       <View style={st.header}>
         <Pressable onPress={onBack} hitSlop={8}><Text style={st.back}>← Geri</Text></Pressable>
-        <View style={[st.badge, ended ? st.badgeEnded : st.badgeLive]}>
-          <Text style={st.badgeText}>{ended ? 'Bitti' : '● Canlı'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[st.badge, ended ? st.badgeEnded : st.badgeLive]}>
+            <Text style={st.badgeText}>{ended ? 'Bitti' : '● Canlı'}</Text>
+          </View>
+          <Pressable onPress={toggleFav} hitSlop={8} style={{ marginLeft: 12 }}>
+            <Text style={[st.heart, fav && { color: C.danger }]}>{fav ? '♥' : '♡'}</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -376,26 +401,76 @@ function CreateScreen({ onDone }) {
   );
 }
 
+// ---------- Notifications ----------
+function notifAgo(ts) {
+  const s = Math.floor(Date.now() / 1000 - ts);
+  if (s < 60) return 'az önce';
+  if (s < 3600) return Math.floor(s / 60) + ' dk önce';
+  if (s < 86400) return Math.floor(s / 3600) + ' sa önce';
+  return Math.floor(s / 86400) + ' g önce';
+}
+
+function NotificationsScreen({ onBack, onOpen }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try { const d = await api.notifications(); setItems(d.items); await api.markRead(); }
+      catch (e) {} finally { setLoading(false); }
+    })();
+  }, []);
+  return (
+    <View style={st.screen}>
+      <View style={st.header}>
+        <Pressable onPress={onBack} hitSlop={8}><Text style={st.back}>← Geri</Text></Pressable>
+        <Text style={st.headerTitle}>Bildirimler</Text>
+        <View style={{ width: 52 }} />
+      </View>
+      {loading ? (
+        <View style={st.center}><ActivityIndicator size="large" color={C.primary} /></View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.id}
+          contentContainerStyle={items.length === 0 ? st.emptyWrap : { padding: 16 }}
+          ListEmptyComponent={<Text style={st.empty}>Henüz bildirim yok.</Text>}
+          renderItem={({ item }) => (
+            <Pressable style={({ pressed }) => [st.notifRow, !item.read && st.notifUnread, pressed && { opacity: 0.85 }]} disabled={!item.auction_id} onPress={() => item.auction_id && onOpen(item.auction_id)}>
+              <Text style={st.notifIcon}>🔔</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={st.notifMsg}>{item.message}</Text>
+                <Text style={st.notifTime}>{notifAgo(item.created_at)}</Text>
+              </View>
+              {!item.read && <View style={st.notifDot} />}
+            </Pressable>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
 // ---------- Profile ----------
 function ProfileScreen({ onBack, onLogout, onOpen }) {
   const [user] = useState(() => api.currentUser());
   const [tab, setTab] = useState('selling');
   const [selling, setSelling] = useState([]);
   const [bids, setBids] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [s, b] = await Promise.all([api.myAuctions(), api.myBids()]);
-      setSelling(s); setBids(b);
+      const [s, b, f] = await Promise.all([api.myAuctions(), api.myBids(), api.myFavorites()]);
+      setSelling(s); setBids(b); setFavorites(f);
     } catch (e) {}
     finally { setLoading(false); setRefreshing(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const initial = user && user.username ? user.username[0].toUpperCase() : '?';
-  const data = tab === 'selling' ? selling : bids;
+  const data = tab === 'selling' ? selling : tab === 'bids' ? bids : favorites;
 
   function bidStatus(item) {
     const ended = item.status !== 'active' || item.ends_at * 1000 <= Date.now();
@@ -424,6 +499,9 @@ function ProfileScreen({ onBack, onLogout, onOpen }) {
         <Pressable style={[st.tab, tab === 'bids' && st.tabActive]} onPress={() => setTab('bids')}>
           <Text style={[st.tabText, tab === 'bids' && st.tabTextActive]}>Tekliflerim ({bids.length})</Text>
         </Pressable>
+        <Pressable style={[st.tab, tab === 'favorites' && st.tabActive]} onPress={() => setTab('favorites')}>
+          <Text style={[st.tabText, tab === 'favorites' && st.tabTextActive]}>Favoriler ({favorites.length})</Text>
+        </Pressable>
       </View>
       {loading ? (
         <View style={st.center}><ActivityIndicator size="large" color={C.primary} /></View>
@@ -433,7 +511,7 @@ function ProfileScreen({ onBack, onLogout, onOpen }) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={data.length === 0 ? st.emptyWrap : { padding: 16 }}
           refreshControl={<RefreshControl tintColor={C.sub} refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-          ListEmptyComponent={<Text style={st.empty}>{tab === 'selling' ? 'Henüz ilan oluşturmadın.' : 'Henüz teklif vermedin.'}</Text>}
+          ListEmptyComponent={<Text style={st.empty}>{tab === 'selling' ? 'Henüz ilan oluşturmadın.' : tab === 'bids' ? 'Henüz teklif vermedin.' : 'Henüz favori eklemedin.'}</Text>}
           renderItem={({ item }) => {
             const ended = item.status !== 'active' || item.ends_at * 1000 <= Date.now();
             return (
@@ -469,13 +547,15 @@ export default function App() {
   const [detailId, setDetailId] = useState(null);
   const [creating, setCreating] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [notif, setNotif] = useState(false);
 
   let body;
   if (!signedIn) body = <AuthScreen onAuthed={() => setSignedIn(true)} />;
+  else if (notif) body = <NotificationsScreen onBack={() => setNotif(false)} onOpen={(id) => { setNotif(false); setDetailId(id); }} />;
   else if (profile) body = <ProfileScreen onBack={() => setProfile(false)} onLogout={() => { api.logout(); setProfile(false); setSignedIn(false); }} onOpen={(id) => { setProfile(false); setDetailId(id); }} />;
   else if (creating) body = <CreateScreen onDone={() => setCreating(false)} />;
   else if (detailId) body = <DetailScreen id={detailId} onBack={() => setDetailId(null)} />;
-  else body = <AuctionsScreen onProfile={() => setProfile(true)} onOpen={setDetailId} onCreate={() => setCreating(true)} />;
+  else body = <AuctionsScreen onProfile={() => setProfile(true)} onOpen={setDetailId} onCreate={() => setCreating(true)} onNotifications={() => setNotif(true)} />;
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>{body}</SafeAreaView>;
 }
@@ -505,7 +585,17 @@ const st = StyleSheet.create({
   createBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.primary, borderRadius: 8, marginRight: 8 },
   createText: { color: C.primaryText, fontSize: 14, fontWeight: '700' },
   profileBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, marginRight: 8 },
   profileText: { fontSize: 18 },
+  nbadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  nbadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  heart: { fontSize: 24, color: C.sub },
+  notifRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  notifUnread: { backgroundColor: C.card2 },
+  notifIcon: { fontSize: 20, marginRight: 12 },
+  notifMsg: { color: C.text, fontSize: 14, lineHeight: 19 },
+  notifTime: { color: C.sub, fontSize: 12, marginTop: 4 },
+  notifDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.primary, marginLeft: 8 },
   profile: { flexDirection: 'row', alignItems: 'center', padding: 16 },
   avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
   avatarText: { color: C.primaryText, fontSize: 24, fontWeight: '800' },

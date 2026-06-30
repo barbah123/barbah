@@ -11,6 +11,7 @@ import AuctionsScreen from './src/screens/AuctionsScreen';
 import AuctionDetailScreen from './src/screens/AuctionDetailScreen';
 import CreateAuctionScreen from './src/screens/CreateAuctionScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import NotificationsScreen from './src/screens/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -47,6 +48,15 @@ export default function App() {
                     onProfile={() => navigation.navigate('Profile')}
                     onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
                     onCreate={() => navigation.navigate('CreateAuction')}
+                    onNotifications={() => navigation.navigate('Notifications')}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Notifications">
+                {({ navigation }) => (
+                  <NotificationsScreen
+                    onBack={() => navigation.goBack()}
+                    onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
                   />
                 )}
               </Stack.Screen>

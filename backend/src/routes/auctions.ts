@@ -32,7 +32,31 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
        JOIN users u ON b.bidder_id = u.id WHERE b.auction_id = ? ORDER BY b.amount DESC LIMIT 20`
     ).bind(id).all();
 
-    return json({ ...auction, bids: bids.results });
+    let favorited = false;
+    const viewer = await getUser(request, env.JWT_SECRET).catch(() => null);
+    if (viewer) {
+      const fav = await env.DB.prepare('SELECT 1 FROM favorites WHERE user_id = ? AND auction_id = ?')
+        .bind(viewer.id, id).first();
+      favorited = !!fav;
+    }
+
+    return json({ ...auction, bids: bids.results, favorited });
+  }
+
+  // POST/DELETE /auctions/:id/favorite
+  if (segments.length === 3 && segments[2] === 'favorite' && (request.method === 'POST' || request.method === 'DELETE')) {
+    const user = await getUser(request, env.JWT_SECRET).catch(() => null);
+    if (!user) return json({ error: 'Unauthorized' }, 401);
+    const auctionId = segments[1];
+
+    if (request.method === 'POST') {
+      await env.DB.prepare('INSERT OR IGNORE INTO favorites (user_id, auction_id) VALUES (?, ?)')
+        .bind(user.id, auctionId).run();
+      return json({ favorited: true });
+    }
+    await env.DB.prepare('DELETE FROM favorites WHERE user_id = ? AND auction_id = ?')
+      .bind(user.id, auctionId).run();
+    return json({ favorited: false });
   }
 
   // POST /auctions
@@ -96,6 +120,22 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
 
     await env.DB.prepare('INSERT INTO bids (id, auction_id, bidder_id, amount) VALUES (?, ?, ?, ?)')
       .bind(crypto.randomUUID(), auctionId, user.id, amount).run();
+
+    // Notify the seller and everyone who favorited this auction (except the bidder).
+    const recips = await env.DB.prepare(
+      `SELECT seller_id AS uid FROM auctions WHERE id = ?
+       UNION
+       SELECT user_id AS uid FROM favorites WHERE auction_id = ?`
+    ).bind(auctionId, auctionId).all<{ uid: string }>();
+    const message = `@${(user as any).username} "${auction.title}" için ${amount} ₺ teklif verdi`;
+    const stmts = recips.results
+      .map((r) => r.uid)
+      .filter((uid) => uid && uid !== user.id)
+      .map((uid) =>
+        env.DB.prepare('INSERT INTO notifications (id, user_id, auction_id, type, message) VALUES (?, ?, ?, ?, ?)')
+          .bind(crypto.randomUUID(), uid, auctionId, 'bid', message)
+      );
+    if (stmts.length) await env.DB.batch(stmts);
 
     return json({ message: 'Bid placed', current_price: amount });
   }

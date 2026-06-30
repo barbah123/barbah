@@ -39,5 +39,33 @@ export async function meRoutes(request: Request, env: Env): Promise<Response> {
     return json(rows.results);
   }
 
+  // GET /me/favorites — auctions I've favorited
+  if (path === '/me/favorites' && request.method === 'GET') {
+    const rows = await env.DB.prepare(
+      `SELECT a.*, u.username as seller_username
+       FROM favorites f
+       JOIN auctions a ON f.auction_id = a.id
+       JOIN users u ON a.seller_id = u.id
+       WHERE f.user_id = ? ORDER BY f.created_at DESC`
+    ).bind(user.id).all();
+    return json(rows.results);
+  }
+
+  // GET /me/notifications — my notifications + unread count
+  if (path === '/me/notifications' && request.method === 'GET') {
+    const rows = await env.DB.prepare(
+      'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
+    ).bind(user.id).all<{ read: number }>();
+    const unread = rows.results.filter((n) => !n.read).length;
+    return json({ items: rows.results, unread });
+  }
+
+  // POST /me/notifications/read — mark all as read
+  if (path === '/me/notifications/read' && request.method === 'POST') {
+    await env.DB.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0')
+      .bind(user.id).run();
+    return json({ ok: true });
+  }
+
   return json({ error: 'Not found' }, 404);
 }

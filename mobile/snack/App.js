@@ -5,8 +5,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Platform, Pressable,
-  RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
+  RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+
+// react-native's SafeAreaView only insets on iOS; pad the status bar on Android.
+const ANDROID_TOP = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
 import * as ImagePicker from 'expo-image-picker';
 
 const BASE_URL = 'https://pokemon-auction-api.barbah.workers.dev';
@@ -16,7 +19,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.13.0';
+const APP_VERSION = 'v0.14.0';
 
 const DURATIONS = [
   { label: '6 saat', h: 6 },
@@ -589,7 +592,7 @@ export default function App() {
   else if (detailId) body = <DetailScreen id={detailId} onBack={() => setDetailId(null)} />;
   else body = <AuctionsScreen onProfile={() => setProfile(true)} onOpen={setDetailId} onCreate={() => setCreating(true)} onNotifications={() => setNotif(true)} />;
 
-  return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>{body}</SafeAreaView>;
+  return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg, paddingTop: ANDROID_TOP }}>{body}</SafeAreaView>;
 }
 
 const st = StyleSheet.create({

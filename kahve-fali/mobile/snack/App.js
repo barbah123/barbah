@@ -4,13 +4,15 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform,
-  Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Modal,
+  Platform, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.2.0';
+const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
   bg: '#1a120b', card: '#2a1d12', card2: '#3a2a1a', text: '#f5ece2', sub: '#b89b82',
@@ -319,6 +321,20 @@ function Settings({ onBack, onLogout }) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [clipKey, setClipKey] = useState(null);
+
+  const checkClipboard = useCallback(async () => {
+    try {
+      const t = (await Clipboard.getStringAsync()).trim();
+      setClipKey(KEY_RE.test(t) ? t : null);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    checkClipboard();
+    const sub = AppState.addEventListener('change', (state) => { if (state === 'active') checkClipboard(); });
+    return () => sub.remove();
+  }, [checkClipboard]);
 
   useEffect(() => {
     api('/me/settings').then((d) => { setS(d); setModel(d.model); })
@@ -360,6 +376,14 @@ function Settings({ onBack, onLogout }) {
               </View>
 
               <Text style={styles.label}>OpenAI API Anahtarı</Text>
+
+              {clipKey && clipKey !== apiKey && (
+                <Pressable style={styles.pasteBanner} onPress={() => { setApiKey(clipKey); setClipKey(null); }}>
+                  <Text style={styles.pasteBannerText}>📋 Panodaki anahtarı yapıştır</Text>
+                  <Text style={styles.pasteBannerSub}>sk-…{clipKey.slice(-4)} · dokun</Text>
+                </Pressable>
+              )}
+
               <TextInput style={styles.input} placeholder={s.has_api_key ? 'Yeni anahtar girerek değiştir' : 'sk-...'}
                 placeholderTextColor={C.sub} autoCapitalize="none" autoCorrect={false} secureTextEntry
                 value={apiKey} onChangeText={setApiKey} />
@@ -488,6 +512,9 @@ const styles = StyleSheet.create({
   section: { color: C.text, fontSize: 17, fontWeight: '800', marginBottom: 12 },
   statusBox: { backgroundColor: C.card, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: C.border, marginBottom: 20 },
   link: { color: C.accent, fontWeight: '600', marginTop: 10 },
+  pasteBanner: { backgroundColor: C.card2, borderWidth: 1, borderColor: C.good, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  pasteBannerText: { color: C.good, fontSize: 15, fontWeight: '700' },
+  pasteBannerSub: { color: C.sub, fontSize: 13, fontWeight: '600' },
   guideBtn: { marginTop: 14, backgroundColor: C.card2, borderWidth: 1, borderColor: C.primary, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 14, alignItems: 'center' },
   guideBtnText: { color: C.accent, fontSize: 14, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },

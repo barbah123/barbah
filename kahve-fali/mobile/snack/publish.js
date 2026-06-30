@@ -37,7 +37,10 @@ const { Snack } = require('snack-sdk');
     description: 'Yapay zeka destekli kahve falı - canli backend',
     sdkVersion: '54.0.0',
     files: { 'App.js': { type: 'CODE', contents: APP_JS } },
-    dependencies: { 'expo-image-picker': { version: '17.0.11' } },
+    dependencies: {
+      'expo-image-picker': { version: '17.0.11' },
+      'expo-clipboard': { version: '8.0.8' },
+    },
     user: { accessToken: token },
   });
 

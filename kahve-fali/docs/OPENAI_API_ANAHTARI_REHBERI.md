@@ -37,8 +37,14 @@ Oluşan ve **`sk-`** ile başlayan uzun metni hemen kopyala.
 Kahve Falı uygulamasında:
 1. **⚙️ Ayarlar** ekranını aç.
 2. **"OpenAI API Anahtarı"** alanına anahtarı yapıştır.
+   > 💡 **Kolaylık:** Anahtarı 5. adımda kopyaladıysan, uygulamaya döndüğünde alanın üstünde
+   > **"📋 Panodaki anahtarı yapıştır"** düğmesi belirir — tek dokunuşla otomatik dolar.
 3. **"Bağlantıyı Test Et"** → yeşil **✅ Geçerli** görmelisin.
 4. **"Kaydet"**. Artık fal baktırabilirsin. ☕
+
+> **Not:** Anahtar "ChatGPT uygulamasından" otomatik alınamaz — ChatGPT ile OpenAI API ayrı
+> ürünlerdir ve API anahtarları gizli olduğu için başka bir uygulama bunları çekemez. Bu yüzden
+> anahtarı bir kez yukarıdaki gibi oluşturup girmen gerekir (panodan yapıştırma bunu kolaylaştırır).
 
 ---
 

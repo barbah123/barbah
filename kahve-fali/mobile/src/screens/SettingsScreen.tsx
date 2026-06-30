@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Linking,
   Modal,
   Pressable,
@@ -12,8 +13,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import { api, Settings } from '../api';
 import { colors } from '../theme';
+
+// Pano içeriği bir OpenAI anahtarına benziyor mu? (sk-... ve sk-proj-...)
+const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'];
 
@@ -59,6 +64,26 @@ export default function SettingsScreen({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [clipKey, setClipKey] = useState<string | null>(null);
+
+  // Pano'da sk-... ile başlayan bir anahtar varsa tek dokunuşla yapıştırma öner.
+  // Kullanıcı OpenAI sayfasından kopyalayıp uygulamaya dönünce yakalanır.
+  const checkClipboard = useCallback(async () => {
+    try {
+      const t = (await Clipboard.getStringAsync()).trim();
+      setClipKey(KEY_RE.test(t) ? t : null);
+    } catch {
+      /* pano okunamadı */
+    }
+  }, []);
+
+  useEffect(() => {
+    checkClipboard();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkClipboard();
+    });
+    return () => sub.remove();
+  }, [checkClipboard]);
 
   useEffect(() => {
     api.settings
@@ -151,6 +176,17 @@ export default function SettingsScreen({
             </View>
 
             <Text style={styles.label}>OpenAI API Anahtarı</Text>
+
+            {clipKey && clipKey !== apiKey && (
+              <Pressable
+                style={styles.pasteBanner}
+                onPress={() => { setApiKey(clipKey); setClipKey(null); }}
+              >
+                <Text style={styles.pasteBannerText}>📋 Panodaki anahtarı yapıştır</Text>
+                <Text style={styles.pasteBannerSub}>sk-…{clipKey.slice(-4)} · dokun</Text>
+              </Pressable>
+            )}
+
             <TextInput
               style={styles.input}
               placeholder={settings.has_api_key ? 'Yeni anahtar girerek değiştir' : 'sk-...'}
@@ -302,6 +338,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   link: { color: colors.accent, fontSize: 14, fontWeight: '600', marginTop: 10 },
+  pasteBanner: {
+    backgroundColor: colors.card2,
+    borderWidth: 1,
+    borderColor: colors.good,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pasteBannerText: { color: colors.good, fontSize: 15, fontWeight: '700' },
+  pasteBannerSub: { color: colors.sub, fontSize: 13, fontWeight: '600' },
   guideBtn: {
     marginTop: 14,
     backgroundColor: colors.card2,

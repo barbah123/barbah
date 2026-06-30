@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { api } from '../api';
@@ -32,7 +29,7 @@ type AuctionDetail = {
 export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const [auction, setAuction] = useState<AuctionDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState('');
+  const [bidAmount, setBidAmount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -65,20 +62,24 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
   }, [auction]);
 
   const minBid = auction ? auction.current_price + auction.min_bid_increment : 0;
+  const step = auction ? auction.min_bid_increment : 1;
+
+  // Auto-fill the bid with the minimum allowed whenever the price changes.
+  useEffect(() => {
+    if (auction) setBidAmount(auction.current_price + auction.min_bid_increment);
+  }, [auction?.current_price, auction?.min_bid_increment]);
 
   async function placeBid() {
     setError(null);
     setMsg(null);
-    const val = Number(amount);
-    if (!val || val < minBid) {
+    if (bidAmount < minBid) {
       setError(`En az ${minBid} ₺ teklif vermelisin.`);
       return;
     }
     setBusy(true);
     try {
-      await api.auctions.bid(id, val);
+      await api.auctions.bid(id, bidAmount);
       setMsg('Teklifin alındı! 🎉');
-      setAmount('');
       await load();
     } catch (e: any) {
       setError(e?.message ?? 'Teklif verilemedi');
@@ -154,33 +155,40 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
       </ScrollView>
 
       {!ended && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.bidBar}>
-            {error && <Text style={styles.error}>{error}</Text>}
-            {msg && <Text style={styles.success}>{msg}</Text>}
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <TextInput
-                style={styles.bidInput}
-                placeholderTextColor={colors.sub}
-                placeholder={`min ${minBid} ₺`}
-                keyboardType="numeric"
-                value={amount}
-                onChangeText={setAmount}
-              />
-              <Pressable
-                style={({ pressed }) => [styles.bidBtn, (busy || pressed) && { opacity: 0.6 }]}
-                onPress={placeBid}
-                disabled={busy}
-              >
-                {busy ? (
-                  <ActivityIndicator color={colors.primaryText} />
-                ) : (
-                  <Text style={styles.buttonText}>Teklif ver</Text>
-                )}
-              </Pressable>
+        <View style={styles.bidBar}>
+          {error && <Text style={styles.error}>{error}</Text>}
+          {msg && <Text style={styles.success}>{msg}</Text>}
+          <Text style={styles.minHint}>En düşük teklif: {minBid} ₺</Text>
+          <View style={styles.stepperRow}>
+            <Pressable
+              style={({ pressed }) => [styles.stepBtn, (bidAmount <= minBid || pressed) && { opacity: 0.4 }]}
+              onPress={() => setBidAmount((a) => Math.max(minBid, a - step))}
+              disabled={bidAmount <= minBid}
+            >
+              <Text style={styles.stepText}>−</Text>
+            </Pressable>
+            <View style={styles.amountBox}>
+              <Text style={styles.amountText}>{bidAmount} ₺</Text>
             </View>
+            <Pressable
+              style={({ pressed }) => [styles.stepBtn, pressed && { opacity: 0.6 }]}
+              onPress={() => setBidAmount((a) => a + step)}
+            >
+              <Text style={styles.stepText}>+</Text>
+            </Pressable>
           </View>
-        </KeyboardAvoidingView>
+          <Pressable
+            style={({ pressed }) => [styles.bidBtnFull, (busy || pressed) && { opacity: 0.6 }]}
+            onPress={placeBid}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator color={colors.primaryText} />
+            ) : (
+              <Text style={styles.buttonText}>{bidAmount} ₺ Teklif Ver</Text>
+            )}
+          </Pressable>
+        </View>
       )}
     </View>
   );
@@ -232,19 +240,22 @@ const styles = StyleSheet.create({
   bidUser: { color: colors.text, fontSize: 14 },
   bidAmount: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   bidBar: { padding: 16, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.bg },
-  bidInput: {
-    flex: 1,
+  minHint: { color: colors.sub, fontSize: 13, textAlign: 'center', marginBottom: 10 },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  stepBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: colors.card,
-    color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 16,
-    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  bidBtn: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center' },
+  stepText: { color: colors.text, fontSize: 28, fontWeight: '700', lineHeight: 30 },
+  amountBox: { minWidth: 130, alignItems: 'center', marginHorizontal: 16 },
+  amountText: { color: colors.accent, fontSize: 26, fontWeight: '800' },
+  bidBtnFull: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
   buttonText: { color: colors.primaryText, fontSize: 16, fontWeight: '700' },
   error: { color: colors.danger, textAlign: 'center', marginBottom: 8 },
   success: { color: colors.good, textAlign: 'center', marginBottom: 8, fontWeight: '600' },

@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.6.0';
+const APP_VERSION = 'v0.7.0';
 
 let TOKEN = null;
 
@@ -191,7 +191,7 @@ function AuctionsScreen({ onLogout, onOpen, onCreate }) {
 function DetailScreen({ id, onBack }) {
   const [auction, setAuction] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [amount, setAmount] = useState('');
+  const [bidAmount, setBidAmount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -213,15 +213,19 @@ function DetailScreen({ id, onBack }) {
   }, [auction]);
 
   const minBid = auction ? auction.current_price + auction.min_bid_increment : 0;
+  const step = auction ? auction.min_bid_increment : 1;
+
+  useEffect(() => {
+    if (auction) setBidAmount(auction.current_price + auction.min_bid_increment);
+  }, [auction && auction.current_price, auction && auction.min_bid_increment]);
 
   async function placeBid() {
     setError(null); setMsg(null);
-    const val = Number(amount);
-    if (!val || val < minBid) { setError('En az ' + minBid + ' ₺ teklif vermelisin.'); return; }
+    if (bidAmount < minBid) { setError('En az ' + minBid + ' ₺ teklif vermelisin.'); return; }
     setBusy(true);
     try {
-      await api.bid(id, val);
-      setMsg('Teklifin alındı! 🎉'); setAmount('');
+      await api.bid(id, bidAmount);
+      setMsg('Teklifin alındı! 🎉');
       await load();
     } catch (e) { setError(e.message || 'Teklif verilemedi'); }
     finally { setBusy(false); }
@@ -271,22 +275,27 @@ function DetailScreen({ id, onBack }) {
       </ScrollView>
 
       {!ended && (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={st.bidBar}>
-            {error && <Text style={st.error}>{error}</Text>}
-            {msg && <Text style={st.success}>{msg}</Text>}
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <TextInput
-                style={st.bidInput} placeholderTextColor={C.sub}
-                placeholder={'min ' + minBid + ' ₺'} keyboardType="numeric"
-                value={amount} onChangeText={setAmount}
-              />
-              <Pressable style={({ pressed }) => [st.bidBtn, (busy || pressed) && st.buttonDim]} onPress={placeBid} disabled={busy}>
-                {busy ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>Teklif ver</Text>}
-              </Pressable>
-            </View>
+        <View style={st.bidBar}>
+          {error && <Text style={st.error}>{error}</Text>}
+          {msg && <Text style={st.success}>{msg}</Text>}
+          <Text style={st.minHint}>En düşük teklif: {minBid} ₺</Text>
+          <View style={st.stepperRow}>
+            <Pressable
+              style={({ pressed }) => [st.stepBtn, (bidAmount <= minBid || pressed) && { opacity: 0.4 }]}
+              onPress={() => setBidAmount((a) => Math.max(minBid, a - step))}
+              disabled={bidAmount <= minBid}
+            >
+              <Text style={st.stepText}>−</Text>
+            </Pressable>
+            <View style={st.amountBox}><Text style={st.amountText}>{bidAmount} ₺</Text></View>
+            <Pressable style={({ pressed }) => [st.stepBtn, pressed && { opacity: 0.6 }]} onPress={() => setBidAmount((a) => a + step)}>
+              <Text style={st.stepText}>+</Text>
+            </Pressable>
           </View>
-        </KeyboardAvoidingView>
+          <Pressable style={({ pressed }) => [st.bidBtnFull, (busy || pressed) && st.buttonDim]} onPress={placeBid} disabled={busy}>
+            {busy ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>{bidAmount} ₺ Teklif Ver</Text>}
+          </Pressable>
+        </View>
       )}
     </View>
   );
@@ -434,6 +443,11 @@ const st = StyleSheet.create({
   badgeText: { color: C.good, fontSize: 12, fontWeight: '700' },
 
   bidBar: { padding: 16, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bg },
-  bidInput: { flex: 1, backgroundColor: C.card, color: C.text, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 16, marginRight: 10 },
-  bidBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center' },
+  minHint: { color: C.sub, fontSize: 13, textAlign: 'center', marginBottom: 10 },
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  stepBtn: { width: 52, height: 52, borderRadius: 26, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  stepText: { color: C.text, fontSize: 28, fontWeight: '700', lineHeight: 30 },
+  amountBox: { minWidth: 130, alignItems: 'center', marginHorizontal: 16 },
+  amountText: { color: C.accent, fontSize: 26, fontWeight: '800' },
+  bidBtnFull: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
 });

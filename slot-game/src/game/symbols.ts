@@ -60,8 +60,8 @@ export const SYMBOL_IDS = Object.keys(SYMBOLS) as SymbolId[];
 export const WILD: SymbolId = 'wolf';
 export const SCATTER: SymbolId = 'hat';
 
-// Number of hard hats on a single spin needed to launch the bonus.
-export const BONUS_TRIGGER = 6;
+// Number of hard hats on a single spin needed to launch the Wheel Feature.
+export const BONUS_TRIGGER = 3;
 
 // Weighted pool used by every reel when picking random symbols.
 const WEIGHTED_POOL: SymbolId[] = SYMBOL_IDS.flatMap((id) =>

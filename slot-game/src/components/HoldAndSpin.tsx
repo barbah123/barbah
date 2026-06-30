@@ -18,6 +18,7 @@ import {
   type Prize,
 } from '../game/bonus';
 import { layout } from '../theme';
+import { Sprite } from './Sprites';
 
 type Phase = 'respin' | 'wolf' | 'done';
 
@@ -226,7 +227,7 @@ function BonusCell({ prize, isNew }: { prize: Prize | null; isNew: boolean }) {
         tier && { borderColor: tier.color },
       ]}
     >
-      <Text style={styles.cellHat}>⛑️</Text>
+      <Sprite symbol="hat" size={22} />
       {tier ? (
         <Text style={[styles.cellTier, { color: tier.color }]}>{tier.label}</Text>
       ) : (

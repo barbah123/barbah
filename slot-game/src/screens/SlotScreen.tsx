@@ -6,6 +6,7 @@ import Reel, { TOTAL_SPIN_MS } from '../components/Reel';
 import JackpotBar from '../components/JackpotBar';
 import Paytable from '../components/Paytable';
 import HoldAndSpin from '../components/HoldAndSpin';
+import BonusWheel, { type WheelAward } from '../components/BonusWheel';
 import { evaluate, spinGrid, type Grid, type SymbolWin } from '../game/slot';
 
 const BET_STEPS = [10, 20, 50, 100, 150]; // total bet in TL
@@ -25,6 +26,7 @@ export default function SlotScreen() {
   const [showHighlights, setShowHighlights] = useState(false);
   const [lastWin, setLastWin] = useState(0);
   const [showPaytable, setShowPaytable] = useState(false);
+  const [wheel, setWheel] = useState(false);
   const [bonus, setBonus] = useState<{ visible: boolean; hats: number }>({
     visible: false,
     hats: 0,
@@ -32,7 +34,7 @@ export default function SlotScreen() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const bet = BET_STEPS[betIndex];
-  const canSpin = !spinning && !bonus.visible && balance >= bet;
+  const canSpin = !spinning && !wheel && !bonus.visible && balance >= bet;
 
   const highlightSets = useMemo(() => {
     const sets = emptyHighlights();
@@ -63,9 +65,20 @@ export default function SlotScreen() {
       setLastWin(result.totalWin);
       if (result.totalWin > 0) setBalance((b) => b + result.totalWin);
       if (result.bonusTriggered) {
-        setTimeout(() => setBonus({ visible: true, hats: result.scatterCount }), 700);
+        setTimeout(() => setWheel(true), 700);
       }
     }, TOTAL_SPIN_MS + 80);
+  }
+
+  function onWheelCollect(award: WheelAward) {
+    setWheel(false);
+    if (award.type === 'bonus') {
+      // BONUS slice -> Hold & Re-spin coin round.
+      setTimeout(() => setBonus({ visible: true, hats: 6 }), 250);
+    } else {
+      setBalance((b) => b + award.amount);
+      setLastWin((w) => w + award.amount);
+    }
   }
 
   function onBonusFinish(amount: number) {
@@ -104,7 +117,7 @@ export default function SlotScreen() {
           ))}
         </View>
         <Text style={styles.reelWays}>243 YOL İLE KAZANÇ</Text>
-        <Text style={styles.trigger}>6+ ⛑️ BARET → HOLD &amp; RE-SPIN BONUSU</Text>
+        <Text style={styles.trigger}>3+ ⛑️ BARET → BONUS ÇARKINI DÖNDÜRÜR</Text>
       </View>
 
       {/* HUD */}
@@ -150,6 +163,7 @@ export default function SlotScreen() {
       )}
 
       <Paytable visible={showPaytable} onClose={() => setShowPaytable(false)} />
+      <BonusWheel visible={wheel} bet={bet} onCollect={onWheelCollect} />
       <HoldAndSpin
         visible={bonus.visible}
         bet={bet}

@@ -21,7 +21,7 @@ function PayRow({ def }: { def: SymbolDef }) {
         {def.role === 'wild' ? (
           <Text style={styles.note}>Baret hariç tüm sembollerin yerine geçer.</Text>
         ) : def.role === 'scatter' ? (
-          <Text style={styles.note}>6+ baret Hold &amp; Re-spin bonusunu başlatır.</Text>
+          <Text style={styles.note}>3+ baret Bonus Çarkını döndürür.</Text>
         ) : (
           <Text style={styles.pays}>
             x5: {def.pays[5]}   x4: {def.pays[4]}   x3: {def.pays[3]}

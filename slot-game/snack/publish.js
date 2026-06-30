@@ -38,7 +38,7 @@ const { Snack } = require('snack-sdk');
     description: 'Huff N Puff slot - 243 ways + Hold & Re-spin bonus',
     sdkVersion: '54.0.0',
     files: { 'App.js': { type: 'CODE', contents: APP_JS } },
-    dependencies: {},
+    dependencies: { 'react-native-svg': { version: '15.12.1' } },
     user: { accessToken: token },
   });
 

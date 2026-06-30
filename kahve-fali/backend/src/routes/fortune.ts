@@ -21,12 +21,26 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
   const body = (await request.json().catch(() => ({}))) as {
     type?: 'photo' | 'text';
     question?: string;
-    image_base64?: string;
+    image_base64?: string; // eski tekli format (geriye dönük uyumluluk)
+    images?: { label?: string; base64?: string }[];
   };
 
   const question = (body.question ?? '').trim().slice(0, 500) || undefined;
-  const imageBase64 = body.image_base64 ? stripDataUrl(body.image_base64) : undefined;
-  const type: 'photo' | 'text' = imageBase64 ? 'photo' : 'text';
+
+  // Yeni çoklu format; yoksa eski tekli image_base64'e düş.
+  const rawImages = Array.isArray(body.images)
+    ? body.images
+    : body.image_base64
+    ? [{ base64: body.image_base64 }]
+    : [];
+  const images = rawImages
+    .filter((im) => im && typeof im.base64 === 'string' && im.base64)
+    .slice(0, 4)
+    .map((im) => ({
+      label: typeof im.label === 'string' ? im.label : undefined,
+      base64: stripDataUrl(im.base64 as string),
+    }));
+  const type: 'photo' | 'text' = images.length ? 'photo' : 'text';
 
   if (type === 'text' && !question) {
     return json({ error: 'Fincan fotoğrafı ya da bir niyet/soru gönderin.' }, 400);
@@ -55,7 +69,7 @@ export async function fortuneRoutes(request: Request, env: Env): Promise<Respons
       apiKey,
       model,
       question,
-      imageBase64,
+      images,
       profile: {
         birthDate: settings.birth_date,
         gender: settings.gender,

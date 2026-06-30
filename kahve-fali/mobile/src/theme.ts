@@ -1,4 +1,4 @@
-export const APP_VERSION = 'v1.3.1';
+export const APP_VERSION = 'v1.4.0';
 
 // Kahve temalı koyu palet
 export const colors = {

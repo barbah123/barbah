@@ -105,7 +105,9 @@ export const api = {
     get: (id: string): Promise<Reading> => request(`/me/readings/${id}`),
   },
   fortune: {
-    create: (data: { question?: string; image_base64?: string }): Promise<Reading> =>
-      request('/fortune', { method: 'POST', body: JSON.stringify(data) }),
+    create: (data: {
+      question?: string;
+      images?: { label: string; base64: string }[];
+    }): Promise<Reading> => request('/fortune', { method: 'POST', body: JSON.stringify(data) }),
   },
 };

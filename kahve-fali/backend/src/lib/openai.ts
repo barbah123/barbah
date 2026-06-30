@@ -17,12 +17,18 @@ export interface FortuneProfile {
   maritalStatus?: string | null;
 }
 
+export interface FortuneImage {
+  /** "Fincan 1", "Tabak" gibi etiket (modele bağlam verir). */
+  label?: string;
+  /** Ham base64 (data URL öneki olmadan) JPEG/PNG görsel. */
+  base64: string;
+}
+
 export interface FortuneInput {
   apiKey: string;
   model: string;
   question?: string;
-  /** Ham base64 (data URL öneki olmadan) JPEG/PNG görsel. */
-  imageBase64?: string;
+  images?: FortuneImage[];
   profile?: FortuneProfile;
 }
 
@@ -47,20 +53,23 @@ function profileNote(p?: FortuneProfile): string {
 }
 
 export async function generateFortune(input: FortuneInput): Promise<string> {
-  const { apiKey, model, question, imageBase64, profile } = input;
+  const { apiKey, model, question, images, profile } = input;
 
   const systemPrompt = SYSTEM_PROMPT + profileNote(profile);
 
   const userContent: any[] = [];
-  if (imageBase64) {
+  if (images && images.length) {
     const intro = question
-      ? `Fincan fotoğrafıma bakar mısın? Özellikle merak ettiğim: ${question}`
-      : 'Fincan fotoğrafıma bakıp falıma bakar mısın?';
+      ? `Sana fincan ve tabak fotoğraflarımı gönderiyorum (genelde iki fincan açısı ve bir tabak). Hepsini birlikte değerlendirip falıma bak. Özellikle merak ettiğim: ${question}`
+      : 'Sana fincan ve tabak fotoğraflarımı gönderiyorum (genelde iki fincan açısı ve bir tabak). Hepsini birlikte değerlendirip telvedeki şekillerden falıma bak.';
     userContent.push({ type: 'text', text: intro });
-    userContent.push({
-      type: 'image_url',
-      image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-    });
+    for (const img of images) {
+      if (img.label) userContent.push({ type: 'text', text: `${img.label}:` });
+      userContent.push({
+        type: 'image_url',
+        image_url: { url: `data:image/jpeg;base64,${img.base64}` },
+      });
+    }
   } else {
     userContent.push({
       type: 'text',

@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.3.1';
+const APP_VERSION = 'v1.4.0';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -41,6 +41,12 @@ const MARITALS = [
   { v: 'evli', l: 'Evli' },
   { v: 'iliskisi_var', l: 'İlişkim var' },
   { v: 'diger', l: 'Belirtmek istemiyorum' },
+];
+
+const PHOTO_SLOTS = [
+  { label: 'Fincan 1', emoji: '☕' },
+  { label: 'Fincan 2', emoji: '☕' },
+  { label: 'Tabak', emoji: '🍽️' },
 ];
 
 function formatBirthInput(s) {
@@ -173,8 +179,7 @@ function Auth({ onAuthed }) {
 
 function Home({ onSettings, onHistory, onResult }) {
   const [mode, setMode] = useState('photo');
-  const [imageUri, setImageUri] = useState(null);
-  const [imageB64, setImageB64] = useState(null);
+  const [photos, setPhotos] = useState([null, null, null]);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasKey, setHasKey] = useState(null);
@@ -183,7 +188,7 @@ function Home({ onSettings, onHistory, onResult }) {
     api('/me/settings').then((s) => setHasKey(s.has_api_key)).catch(() => setHasKey(false));
   }, []);
 
-  async function pick(source) {
+  async function pickInto(index, source) {
     try {
       const perm = source === 'camera'
         ? await ImagePicker.requestCameraPermissionsAsync()
@@ -194,15 +199,28 @@ function Home({ onSettings, onHistory, onResult }) {
         ? await ImagePicker.launchCameraAsync(opts)
         : await ImagePicker.launchImageLibraryAsync(opts);
       if (result.canceled || !result.assets || !result.assets.length) return;
-      setImageUri(result.assets[0].uri);
-      setImageB64(result.assets[0].base64 || null);
+      const a = result.assets[0];
+      if (!a.base64) return;
+      setPhotos((prev) => { const next = [...prev]; next[index] = { uri: a.uri, b64: a.base64 }; return next; });
     } catch (e) {
       Alert.alert('Hata', e.message || 'Fotoğraf seçilemedi');
     }
   }
 
+  function chooseSource(index) {
+    const buttons = [
+      { text: '📸 Kamera', onPress: () => pickInto(index, 'camera') },
+      { text: '🖼️ Galeri', onPress: () => pickInto(index, 'library') },
+    ];
+    if (photos[index]) buttons.push({ text: 'Kaldır', style: 'destructive', onPress: () => setPhotos((prev) => { const n = [...prev]; n[index] = null; return n; }) });
+    buttons.push({ text: 'Vazgeç', style: 'cancel' });
+    Alert.alert(PHOTO_SLOTS[index].label, 'Fotoğrafı nasıl eklemek istersin?', buttons);
+  }
+
+  const filledCount = photos.filter(Boolean).length;
+
   async function submit() {
-    if (mode === 'photo' && !imageB64) { Alert.alert('Fotoğraf yok', 'Önce fincan fotoğrafı seçin/çekin.'); return; }
+    if (mode === 'photo' && filledCount < 3) { Alert.alert('Üç fotoğraf gerekli', 'Lütfen iki fincan ve bir tabak fotoğrafı ekleyin.'); return; }
     if (mode === 'text' && !question.trim()) { Alert.alert('Niyet yok', 'Lütfen niyetinizi yazın.'); return; }
     setLoading(true);
     try {
@@ -210,10 +228,10 @@ function Home({ onSettings, onHistory, onResult }) {
         method: 'POST',
         body: JSON.stringify({
           question: question.trim() || undefined,
-          image_base64: mode === 'photo' ? imageB64 : undefined,
+          images: mode === 'photo' ? PHOTO_SLOTS.map((s, i) => ({ label: s.label, base64: photos[i].b64 })) : undefined,
         }),
       });
-      setImageUri(null); setImageB64(null); setQuestion('');
+      setPhotos([null, null, null]); setQuestion('');
       onResult(r);
     } catch (e) {
       Alert.alert('Fal bakılamadı', e.message || 'Bir hata oluştu');
@@ -250,12 +268,16 @@ function Home({ onSettings, onHistory, onResult }) {
 
           {mode === 'photo' && (
             <View style={styles.card}>
-              {imageUri
-                ? <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
-                : <View style={[styles.preview, styles.previewEmpty]}><Text style={{ color: C.sub }}>Fincan / tabak fotoğrafı</Text></View>}
-              <View style={styles.row}>
-                <Pressable style={styles.secondary} onPress={() => pick('camera')}><Text style={styles.secondaryText}>📸 Çek</Text></Pressable>
-                <Pressable style={styles.secondary} onPress={() => pick('library')}><Text style={styles.secondaryText}>🖼️ Galeri</Text></Pressable>
+              <Text style={styles.cardHint}>İki fincan ve bir tabak fotoğrafı ekle ({filledCount}/3)</Text>
+              <View style={styles.slots}>
+                {PHOTO_SLOTS.map((slot, i) => (
+                  <Pressable key={slot.label} style={styles.slot} onPress={() => chooseSource(i)}>
+                    {photos[i]
+                      ? <Image source={{ uri: photos[i].uri }} style={styles.slotImg} resizeMode="cover" />
+                      : <View style={styles.slotEmpty}><Text style={styles.slotEmoji}>{slot.emoji}</Text><Text style={styles.slotPlus}>+</Text></View>}
+                    <Text style={styles.slotLabel}>{slot.label}</Text>
+                  </Pressable>
+                ))}
               </View>
             </View>
           )}
@@ -549,6 +571,14 @@ const styles = StyleSheet.create({
   card: { backgroundColor: C.card, borderRadius: 16, borderWidth: 1, borderColor: C.border, padding: 14, marginBottom: 18 },
   preview: { width: '100%', height: 220, borderRadius: 12, backgroundColor: C.card2 },
   previewEmpty: { alignItems: 'center', justifyContent: 'center' },
+  cardHint: { color: C.sub, fontSize: 13, fontWeight: '600', marginBottom: 12, textAlign: 'center' },
+  slots: { flexDirection: 'row', gap: 10 },
+  slot: { flex: 1, alignItems: 'center' },
+  slotImg: { width: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: C.card2 },
+  slotEmpty: { width: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: C.card2, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
+  slotEmoji: { fontSize: 26 },
+  slotPlus: { color: C.sub, fontSize: 20, fontWeight: '800', marginTop: 2 },
+  slotLabel: { color: C.text, fontSize: 13, fontWeight: '600', marginTop: 6 },
   row: { flexDirection: 'row', gap: 10, marginTop: 12 },
   secondary: { flex: 1, paddingVertical: 13, borderRadius: 10, backgroundColor: C.card2, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   secondaryText: { color: C.text, fontWeight: '700', fontSize: 15 },

@@ -12,7 +12,7 @@ yaşar (`kahve-fali/backend` ve `kahve-fali/mobile`).
 - 🔐 E-posta + parola ile kayıt / giriş (JWT, PBKDF2 ile parola hash'leme)
 - ⚙️ Kullanıcı kendi OpenAI API anahtarını bağlar — anahtar veritabanında **AES-GCM ile
   şifreli** saklanır ve istemciye asla geri gönderilmez (yalnızca son 4 hane gösterilir)
-- 📷 Fincan fotoğrafı yükleyerek (GPT-4o vision) veya ✍️ metinle fal baktırma
+- 📷 Üç fotoğraf yükleyerek (iki fincan + bir tabak, GPT-4o vision) veya ✍️ metinle fal baktırma
 - 📜 Geçmiş fallar (her okuma kaydedilir; fotoğraf kalıcı saklanmaz)
 - 🔌 Bağlantı testi (anahtarın OpenAI'da geçerli olduğunu doğrular)
 
@@ -88,8 +88,8 @@ npm start          # Expo Go ile QR okutun
    sonra **Kaydet**. Anahtarı [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
    adresinden alabilirsiniz. Adım adım rehber: [docs/OPENAI_API_ANAHTARI_REHBERI.md](docs/OPENAI_API_ANAHTARI_REHBERI.md)
    (aynı rehber uygulamada **Ayarlar → 📘 Adım adım rehber** düğmesindedir).
-3. Ana ekranda **📷 Fotoğrafla** sekmesinden fincan fotoğrafı çekin/seçin veya
-   **✍️ Yazarak** sekmesinden niyetinizi yazın, **🔮 Falıma Bak**'a dokunun.
+3. Ana ekranda **📷 Fotoğrafla** sekmesinden üç fotoğraf ekleyin (iki fincan + bir tabak)
+   veya **✍️ Yazarak** sekmesinden niyetinizi yazın, **🔮 Falıma Bak**'a dokunun.
 4. Geçmiş fallarınıza **📜** simgesinden ulaşın.
 
 ## Notlar

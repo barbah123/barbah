@@ -16,6 +16,14 @@ import { api, Reading } from '../api';
 import { colors } from '../theme';
 
 type Mode = 'photo' | 'text';
+type Slot = { uri: string; b64: string } | null;
+
+// Fal için gereken üç fotoğraf: iki fincan + bir tabak.
+const PHOTO_SLOTS = [
+  { label: 'Fincan 1', emoji: '☕' },
+  { label: 'Fincan 2', emoji: '☕' },
+  { label: 'Tabak', emoji: '🍽️' },
+];
 
 export default function HomeScreen({
   onOpenSettings,
@@ -28,8 +36,7 @@ export default function HomeScreen({
 }) {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<Mode>('photo');
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Slot[]>([null, null, null]);
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -41,7 +48,7 @@ export default function HomeScreen({
       .catch(() => setHasKey(false));
   }, []);
 
-  async function pickFrom(source: 'camera' | 'library') {
+  async function pickInto(index: number, source: 'camera' | 'library') {
     try {
       const perm =
         source === 'camera'
@@ -63,16 +70,41 @@ export default function HomeScreen({
           : await ImagePicker.launchImageLibraryAsync(opts);
       if (result.canceled || !result.assets?.length) return;
       const asset = result.assets[0];
-      setImageUri(asset.uri);
-      setImageBase64(asset.base64 ?? null);
+      if (!asset.base64) return;
+      setPhotos((prev) => {
+        const next = [...prev];
+        next[index] = { uri: asset.uri, b64: asset.base64! };
+        return next;
+      });
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Fotoğraf seçilemedi');
     }
   }
 
+  function chooseSource(index: number) {
+    Alert.alert(PHOTO_SLOTS[index].label, 'Fotoğrafı nasıl eklemek istersin?', [
+      { text: '📸 Kamera', onPress: () => pickInto(index, 'camera') },
+      { text: '🖼️ Galeri', onPress: () => pickInto(index, 'library') },
+      ...(photos[index]
+        ? [{ text: 'Kaldır', style: 'destructive' as const, onPress: () => clearSlot(index) }]
+        : []),
+      { text: 'Vazgeç', style: 'cancel' as const },
+    ]);
+  }
+
+  function clearSlot(index: number) {
+    setPhotos((prev) => {
+      const next = [...prev];
+      next[index] = null;
+      return next;
+    });
+  }
+
+  const filledCount = photos.filter(Boolean).length;
+
   async function submit() {
-    if (mode === 'photo' && !imageBase64) {
-      Alert.alert('Fotoğraf yok', 'Önce bir fincan fotoğrafı seçin veya çekin.');
+    if (mode === 'photo' && filledCount < 3) {
+      Alert.alert('Üç fotoğraf gerekli', 'Lütfen iki fincan ve bir tabak fotoğrafı ekleyin.');
       return;
     }
     if (mode === 'text' && !question.trim()) {
@@ -83,11 +115,12 @@ export default function HomeScreen({
     try {
       const reading = await api.fortune.create({
         question: question.trim() || undefined,
-        image_base64: mode === 'photo' ? imageBase64 ?? undefined : undefined,
+        images:
+          mode === 'photo'
+            ? PHOTO_SLOTS.map((s, i) => ({ label: s.label, base64: photos[i]!.b64 }))
+            : undefined,
       });
-      // formu temizle
-      setImageUri(null);
-      setImageBase64(null);
+      setPhotos([null, null, null]);
       setQuestion('');
       onResult(reading);
     } catch (e: any) {
@@ -142,20 +175,23 @@ export default function HomeScreen({
 
         {mode === 'photo' && (
           <View style={styles.card}>
-            {imageUri ? (
-              <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
-            ) : (
-              <View style={[styles.preview, styles.previewEmpty]}>
-                <Text style={styles.previewEmptyText}>Fincan / tabak fotoğrafı</Text>
-              </View>
-            )}
-            <View style={styles.row}>
-              <Pressable style={styles.secondary} onPress={() => pickFrom('camera')}>
-                <Text style={styles.secondaryText}>📸 Çek</Text>
-              </Pressable>
-              <Pressable style={styles.secondary} onPress={() => pickFrom('library')}>
-                <Text style={styles.secondaryText}>🖼️ Galeri</Text>
-              </Pressable>
+            <Text style={styles.cardHint}>
+              İki fincan ve bir tabak fotoğrafı ekle ({filledCount}/3)
+            </Text>
+            <View style={styles.slots}>
+              {PHOTO_SLOTS.map((slot, i) => (
+                <Pressable key={slot.label} style={styles.slot} onPress={() => chooseSource(i)}>
+                  {photos[i] ? (
+                    <Image source={{ uri: photos[i]!.uri }} style={styles.slotImg} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.slotEmpty}>
+                      <Text style={styles.slotEmoji}>{slot.emoji}</Text>
+                      <Text style={styles.slotPlus}>+</Text>
+                    </View>
+                  )}
+                  <Text style={styles.slotLabel}>{slot.label}</Text>
+                </Pressable>
+              ))}
             </View>
           </View>
         )}
@@ -241,20 +277,24 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 18,
   },
-  preview: { width: '100%', height: 220, borderRadius: 12, backgroundColor: colors.card2 },
-  previewEmpty: { alignItems: 'center', justifyContent: 'center' },
-  previewEmptyText: { color: colors.sub, fontSize: 15 },
-  row: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  secondary: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+  cardHint: { color: colors.sub, fontSize: 13, fontWeight: '600', marginBottom: 12, textAlign: 'center' },
+  slots: { flexDirection: 'row', gap: 10 },
+  slot: { flex: 1, alignItems: 'center' },
+  slotImg: { width: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: colors.card2 },
+  slotEmpty: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 12,
     backgroundColor: colors.card2,
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  secondaryText: { color: colors.text, fontWeight: '700', fontSize: 15 },
+  slotEmoji: { fontSize: 26 },
+  slotPlus: { color: colors.sub, fontSize: 20, fontWeight: '800', marginTop: 2 },
+  slotLabel: { color: colors.text, fontSize: 13, fontWeight: '600', marginTop: 6 },
   label: { color: colors.sub, fontSize: 13, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase' },
   textArea: {
     backgroundColor: colors.card,

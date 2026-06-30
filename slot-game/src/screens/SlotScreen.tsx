@@ -95,6 +95,12 @@ export default function SlotScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
+        <Pressable
+          onPress={() => !spinning && !bonus.visible && setWheel(true)}
+          style={styles.testBtn}
+        >
+          <Text style={styles.testBtnText}>🎡 BONUS</Text>
+        </Pressable>
         <Text style={styles.title}>HUFF N&apos; PUFF</Text>
         <Pressable onPress={() => setShowPaytable(true)} style={styles.infoBtn}>
           <Text style={styles.infoBtnText}>i</Text>
@@ -229,6 +235,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   infoBtnText: { color: colors.gold, fontSize: 17, fontWeight: '800', fontStyle: 'italic' },
+  testBtn: {
+    position: 'absolute',
+    left: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.gold,
+    backgroundColor: colors.panel,
+  },
+  testBtnText: { color: colors.gold, fontSize: 12, fontWeight: '900' },
   machine: { flex: 1, justifyContent: 'center' },
   reelWays: {
     color: colors.primary,

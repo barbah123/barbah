@@ -67,7 +67,7 @@ const SYMBOLS = {
   queen: { id: 'queen', label: 'Kız (Q)', weight: 22, role: 'normal', pays: { 3: 1, 4: 4, 5: 12 } },
   jack: { id: 'jack', label: 'Vale (J)', weight: 24, role: 'normal', pays: { 3: 1, 4: 3, 5: 10 } },
   wolf: { id: 'wolf', label: 'Büyük Kötü Kurt (WILD)', weight: 6, role: 'wild', pays: { 3: 0, 4: 0, 5: 0 } },
-  hat: { id: 'hat', label: 'Baret (BONUS)', weight: 7, role: 'scatter', pays: { 3: 0, 4: 0, 5: 0 } },
+  hat: { id: 'hat', label: 'Baret (BONUS)', weight: 11, role: 'scatter', pays: { 3: 0, 4: 0, 5: 0 } },
 };
 const SYMBOL_IDS = Object.keys(SYMBOLS);
 const WILD = 'wolf';
@@ -683,6 +683,9 @@ export default function App() {
   return (
     <View style={s.safe}>
       <View style={s.header}>
+        <Pressable onPress={() => !spinning && !bonus.visible && setWheel(true)} style={s.testBtn}>
+          <Text style={s.testBtnText}>🎡 BONUS</Text>
+        </Pressable>
         <Text style={s.title}>HUFF N&apos; PUFF</Text>
         <Pressable onPress={() => setShowPay(true)} style={s.infoBtn}><Text style={s.infoX}>i</Text></Pressable>
       </View>
@@ -754,6 +757,8 @@ const s = StyleSheet.create({
   title: { color: C.gold, fontSize: 26, fontWeight: '900', letterSpacing: 2 },
   infoBtn: { position: 'absolute', right: 0, width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: C.gold, alignItems: 'center', justifyContent: 'center' },
   infoX: { color: C.gold, fontSize: 17, fontWeight: '800', fontStyle: 'italic' },
+  testBtn: { position: 'absolute', left: 0, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: C.gold, backgroundColor: C.panel },
+  testBtnText: { color: C.gold, fontSize: 12, fontWeight: '900' },
   jpRow: { flexDirection: 'row', justifyContent: 'space-between' },
   jpPill: { flex: 1, marginHorizontal: 2.5, backgroundColor: C.bgDeep, borderRadius: 10, borderWidth: 1.5, paddingVertical: 6, alignItems: 'center' },
   jpLabel: { fontSize: 11, fontWeight: '900' },

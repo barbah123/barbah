@@ -52,7 +52,7 @@ export const SYMBOLS: Record<SymbolId, SymbolDef> = {
   queen: { id: 'queen', label: 'Kız', glyph: '🇶', weight: 22, role: 'normal', pays: { 3: 1, 4: 4, 5: 12 } },
   jack: { id: 'jack', label: 'Vale', glyph: '🇯', weight: 24, role: 'normal', pays: { 3: 1, 4: 3, 5: 10 } },
   wolf: { id: 'wolf', label: 'Büyük Kötü Kurt (WILD)', glyph: '🐺', weight: 6, role: 'wild', pays: { 3: 0, 4: 0, 5: 0 } },
-  hat: { id: 'hat', label: 'Baret (BONUS)', glyph: '⛑️', weight: 7, role: 'scatter', pays: { 3: 0, 4: 0, 5: 0 } },
+  hat: { id: 'hat', label: 'Baret (BONUS)', glyph: '⛑️', weight: 11, role: 'scatter', pays: { 3: 0, 4: 0, 5: 0 } },
 };
 
 export const SYMBOL_IDS = Object.keys(SYMBOLS) as SymbolId[];

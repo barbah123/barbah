@@ -9,28 +9,27 @@ import {
   View,
 } from 'react-native';
 import { api } from '../api';
+import { colors, timeLeft } from '../theme';
+import Thumb from '../components/Thumb';
 
 type Auction = {
   id: string;
   title: string;
   description: string;
   current_price: number;
-  starting_price: number;
+  card_image_key: string;
   status: string;
   ends_at: number;
   seller_username: string;
 };
 
-function formatEnds(endsAt: number): string {
-  const ms = endsAt * 1000 - Date.now();
-  if (ms <= 0) return 'Bitti';
-  const hours = Math.floor(ms / 3_600_000);
-  const mins = Math.floor((ms % 3_600_000) / 60_000);
-  if (hours >= 24) return `${Math.floor(hours / 24)}g ${hours % 24}s kaldı`;
-  return `${hours}s ${mins}d kaldı`;
-}
-
-export default function AuctionsScreen({ onLogout }: { onLogout: () => void }) {
+export default function AuctionsScreen({
+  onLogout,
+  onOpen,
+}: {
+  onLogout: () => void;
+  onOpen: (id: string) => void;
+}) {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,8 +38,7 @@ export default function AuctionsScreen({ onLogout }: { onLogout: () => void }) {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const data = await api.auctions.list('active');
-      setAuctions(data as Auction[]);
+      setAuctions((await api.auctions.list('active')) as Auction[]);
     } catch (e: any) {
       setError(e?.message ?? 'Liste yüklenemedi');
     } finally {
@@ -53,24 +51,22 @@ export default function AuctionsScreen({ onLogout }: { onLogout: () => void }) {
     load();
   }, [load]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    load();
-  }, [load]);
-
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2563eb" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Aktif Açık Artırmalar</Text>
-        <Pressable onPress={onLogout} hitSlop={8}>
+        <View>
+          <Text style={styles.headerTitle}>Açık Artırmalar</Text>
+          <Text style={styles.headerSub}>{auctions.length} aktif ilan</Text>
+        </View>
+        <Pressable onPress={onLogout} hitSlop={8} style={styles.logoutBtn}>
           <Text style={styles.logout}>Çıkış</Text>
         </Pressable>
       </View>
@@ -80,21 +76,37 @@ export default function AuctionsScreen({ onLogout }: { onLogout: () => void }) {
       <FlatList
         data={auctions}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={auctions.length === 0 ? styles.emptyWrap : undefined}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={auctions.length === 0 ? styles.emptyWrap : { padding: 16 }}
+        refreshControl={
+          <RefreshControl
+            tintColor={colors.sub}
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
+          />
+        }
         ListEmptyComponent={
           <Text style={styles.empty}>Henüz aktif açık artırma yok.{'\n'}Aşağı çekerek yenileyin.</Text>
         }
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            {!!item.description && <Text style={styles.cardDesc}>{item.description}</Text>}
-            <View style={styles.cardRow}>
-              <Text style={styles.price}>{item.current_price} ₺</Text>
-              <Text style={styles.meta}>{formatEnds(item.ends_at)}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
+            onPress={() => onOpen(item.id)}
+          >
+            <Thumb imageKey={item.card_image_key} size={64} />
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.seller}>@{item.seller_username}</Text>
+              <View style={styles.cardRow}>
+                <Text style={styles.price}>{item.current_price} ₺</Text>
+                <View style={styles.pill}>
+                  <Text style={styles.pillText}>⏱ {timeLeft(item.ends_at)}</Text>
+                </View>
+              </View>
             </View>
-            <Text style={styles.seller}>Satıcı: {item.seller_username}</Text>
-          </View>
+          </Pressable>
         )}
       />
     </View>
@@ -102,39 +114,38 @@ export default function AuctionsScreen({ onLogout }: { onLogout: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f3f4f6' },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: colors.border,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
-  logout: { color: '#dc2626', fontSize: 14, fontWeight: '600' },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: colors.text },
+  headerSub: { fontSize: 12, color: colors.sub, marginTop: 2 },
+  logoutBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.card, borderRadius: 8 },
+  logout: { color: colors.danger, fontSize: 14, fontWeight: '700' },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 16,
-    marginTop: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  cardDesc: { fontSize: 14, color: '#6b7280', marginTop: 4 },
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
-  price: { fontSize: 18, fontWeight: '700', color: '#2563eb' },
-  meta: { fontSize: 13, color: '#6b7280' },
-  seller: { fontSize: 12, color: '#9ca3af', marginTop: 8 },
-  empty: { textAlign: 'center', color: '#6b7280', fontSize: 15, lineHeight: 22 },
-  emptyWrap: { flexGrow: 1, justifyContent: 'center' },
-  error: { color: '#dc2626', textAlign: 'center', padding: 12 },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  seller: { fontSize: 13, color: colors.sub, marginTop: 2 },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  price: { fontSize: 18, fontWeight: '800', color: colors.accent },
+  pill: { backgroundColor: colors.card2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  pillText: { color: colors.sub, fontSize: 12, fontWeight: '600' },
+  empty: { textAlign: 'center', color: colors.sub, fontSize: 15, lineHeight: 22 },
+  emptyWrap: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  error: { color: colors.danger, textAlign: 'center', padding: 12 },
 });

@@ -5,8 +5,10 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from './src/api';
+import { colors } from './src/theme';
 import AuthScreen from './src/screens/AuthScreen';
 import AuctionsScreen from './src/screens/AuctionsScreen';
+import AuctionDetailScreen from './src/screens/AuctionDetailScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -19,8 +21,8 @@ export default function App() {
 
   if (signedIn === null) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#2563eb" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -32,15 +34,30 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="auto" />
+      <StatusBar style="light" />
       <NavigationContainer>
-        <Stack.Navigator>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
           {signedIn ? (
-            <Stack.Screen name="Auctions" options={{ headerShown: false }}>
-              {() => <AuctionsScreen onLogout={handleLogout} />}
-            </Stack.Screen>
+            <>
+              <Stack.Screen name="Auctions">
+                {({ navigation }) => (
+                  <AuctionsScreen
+                    onLogout={handleLogout}
+                    onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="AuctionDetail">
+                {({ route, navigation }) => (
+                  <AuctionDetailScreen
+                    id={(route.params as { id: string }).id}
+                    onBack={() => navigation.goBack()}
+                  />
+                )}
+              </Stack.Screen>
+            </>
           ) : (
-            <Stack.Screen name="Auth" options={{ headerShown: false }}>
+            <Stack.Screen name="Auth">
               {() => <AuthScreen onAuthed={() => setSignedIn(true)} />}
             </Stack.Screen>
           )}

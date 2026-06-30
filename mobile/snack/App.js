@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.12.0';
+const APP_VERSION = 'v0.13.0';
 
 const DURATIONS = [
   { label: '6 saat', h: 6 },
@@ -49,6 +49,10 @@ const api = {
   },
   login: async (email, password) => {
     const d = await request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    TOKEN = d.token; return d;
+  },
+  resetPassword: async (email, username, password) => {
+    const d = await request('/auth/reset', { method: 'POST', body: JSON.stringify({ email, username, password }) });
     TOKEN = d.token; return d;
   },
   logout: () => { TOKEN = null; },
@@ -117,40 +121,53 @@ function Thumb({ imageKey, size }) {
 
 // ---------- Auth ----------
 function AuthScreen({ onAuthed }) {
-  const [isRegister, setIsRegister] = useState(false);
+  const [mode, setMode] = useState('login'); // 'login' | 'register' | 'reset'
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const needsUsername = mode === 'register' || mode === 'reset';
+  function go(next) { setError(null); setPassword(''); setMode(next); }
+
   async function submit() {
     setError(null);
-    if (!email || !password || (isRegister && !username)) { setError('Lütfen tüm alanları doldurun.'); return; }
+    if (!email || !password || (needsUsername && !username)) { setError('Lütfen tüm alanları doldurun.'); return; }
     setLoading(true);
     try {
-      if (isRegister) await api.register(email.trim(), username.trim(), password);
+      if (mode === 'register') await api.register(email.trim(), username.trim(), password);
+      else if (mode === 'reset') await api.resetPassword(email.trim(), username.trim(), password);
       else await api.login(email.trim(), password);
       onAuthed();
     } catch (e) { setError(e.message || 'Bir hata oluştu'); }
     finally { setLoading(false); }
   }
 
+  const title = mode === 'register' ? 'Hesap oluştur' : mode === 'reset' ? 'Şifreyi sıfırla' : 'Tekrar hoş geldin';
+  const cta = mode === 'register' ? 'Kayıt ol' : mode === 'reset' ? 'Şifreyi sıfırla' : 'Giriş yap';
+
   return (
     <ScrollView style={st.flex} contentContainerStyle={st.authContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
       <Text style={st.logo}>⚡</Text>
       <Text style={st.title}>Pokémon Açık Artırma</Text>
-      <Text style={st.subtitle}>{isRegister ? 'Hesap oluştur' : 'Tekrar hoş geldin'}</Text>
+      <Text style={st.subtitle}>{title}</Text>
+      {mode === 'reset' && <Text style={st.hint}>E-posta ve kullanıcı adını doğrula, yeni parolanı belirle.</Text>}
       <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="E-posta" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
-      {isRegister && <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Kullanıcı adı" autoCapitalize="none" value={username} onChangeText={setUsername} />}
-      <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Parola" secureTextEntry value={password} onChangeText={setPassword} />
+      {needsUsername && <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Kullanıcı adı" autoCapitalize="none" value={username} onChangeText={setUsername} />}
+      <TextInput style={st.input} placeholderTextColor={C.sub} placeholder={mode === 'reset' ? 'Yeni parola' : 'Parola'} secureTextEntry value={password} onChangeText={setPassword} />
       {error && <Text style={st.error}>{error}</Text>}
       <Pressable style={({ pressed }) => [st.button, (loading || pressed) && st.buttonDim]} onPress={submit} disabled={loading}>
-        {loading ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>{isRegister ? 'Kayıt ol' : 'Giriş yap'}</Text>}
+        {loading ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>{cta}</Text>}
       </Pressable>
-      <Pressable onPress={() => { setError(null); setIsRegister(!isRegister); }}>
-        <Text style={st.switchText}>{isRegister ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Kayıt ol'}</Text>
-      </Pressable>
+      {mode === 'login' && (
+        <>
+          <Pressable onPress={() => go('reset')}><Text style={st.linkMuted}>Şifremi unuttum</Text></Pressable>
+          <Pressable onPress={() => go('register')}><Text style={st.switchText}>Hesabın yok mu? Kayıt ol</Text></Pressable>
+        </>
+      )}
+      {mode === 'register' && <Pressable onPress={() => go('login')}><Text style={st.switchText}>Zaten hesabın var mı? Giriş yap</Text></Pressable>}
+      {mode === 'reset' && <Pressable onPress={() => go('login')}><Text style={st.switchText}>← Girişe dön</Text></Pressable>}
       <Text style={st.version}>{APP_VERSION}</Text>
     </ScrollView>
   );
@@ -587,7 +604,9 @@ const st = StyleSheet.create({
   button: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
   buttonDim: { opacity: 0.6 },
   buttonText: { color: C.primaryText, fontSize: 16, fontWeight: '700' },
-  switchText: { color: C.primary, textAlign: 'center', marginTop: 18, fontSize: 14, fontWeight: '600' },
+  switchText: { color: C.primary, textAlign: 'center', marginTop: 16, fontSize: 14, fontWeight: '600' },
+  linkMuted: { color: C.sub, textAlign: 'center', marginTop: 16, fontSize: 14, fontWeight: '600' },
+  hint: { fontSize: 13, textAlign: 'center', color: C.sub, marginBottom: 16 },
   version: { color: C.sub, textAlign: 'center', marginTop: 28, fontSize: 12, opacity: 0.7 },
   error: { color: C.danger, textAlign: 'center', marginBottom: 8 },
   success: { color: C.good, textAlign: 'center', marginBottom: 8, fontWeight: '600' },

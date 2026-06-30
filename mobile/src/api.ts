@@ -47,6 +47,11 @@ export const api = {
       await SecureStore.setItemAsync(TOKEN_KEY, data.token);
       return data;
     },
+    resetPassword: async (email: string, username: string, password: string) => {
+      const data = await request('/auth/reset', { method: 'POST', body: JSON.stringify({ email, username, password }) });
+      await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+      return data;
+    },
     logout: () => SecureStore.deleteItemAsync(TOKEN_KEY),
     hasSession: async () => !!(await SecureStore.getItemAsync(TOKEN_KEY)),
     currentUser: async () => {

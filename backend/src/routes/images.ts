@@ -11,7 +11,14 @@ export async function imageRoutes(request: Request, env: Env): Promise<Response>
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
     if (!user) return json({ error: 'Unauthorized' }, 401);
 
-    const contentType = request.headers.get('Content-Type') ?? 'image/jpeg';
+    // Only accept real image types — never store/serve client-controlled HTML/JS
+    // from our own origin (stored-XSS / file-hosting abuse).
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const contentType = (request.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
+    if (!ALLOWED_TYPES.includes(contentType)) {
+      return json({ error: 'Unsupported media type (allowed: jpeg, png, webp, gif)' }, 415);
+    }
+
     const key = `cards/${user.id}/${crypto.randomUUID()}`;
 
     const body = await request.arrayBuffer();
@@ -32,6 +39,7 @@ export async function imageRoutes(request: Request, env: Env): Promise<Response>
         ...corsHeaders,
         'Content-Type': obj.httpMetadata?.contentType ?? 'image/jpeg',
         'Cache-Control': 'public, max-age=31536000',
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   }

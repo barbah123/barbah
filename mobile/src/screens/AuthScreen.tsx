@@ -9,7 +9,7 @@ import {
   TextInput,
 } from 'react-native';
 import { api } from '../api';
-import { colors } from '../theme';
+import { colors, APP_VERSION } from '../theme';
 
 export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -96,6 +96,8 @@ export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
           {isRegister ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Kayıt ol'}
         </Text>
       </Pressable>
+
+      <Text style={styles.version}>{APP_VERSION}</Text>
     </KeyboardAvoidingView>
   );
 }
@@ -121,4 +123,5 @@ const styles = StyleSheet.create({
   buttonText: { color: colors.primaryText, fontSize: 16, fontWeight: '700' },
   switchText: { color: colors.primary, textAlign: 'center', marginTop: 18, fontSize: 14, fontWeight: '600' },
   error: { color: colors.danger, textAlign: 'center', marginBottom: 8 },
+  version: { color: colors.sub, textAlign: 'center', marginTop: 28, fontSize: 12, opacity: 0.7 },
 });

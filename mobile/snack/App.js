@@ -15,6 +15,8 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
+const APP_VERSION = 'v0.4.0';
+
 let TOKEN = null;
 
 async function request(path, options = {}) {
@@ -102,6 +104,7 @@ function AuthScreen({ onAuthed }) {
       <Pressable onPress={() => { setError(null); setIsRegister(!isRegister); }}>
         <Text style={st.switchText}>{isRegister ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Kayıt ol'}</Text>
       </Pressable>
+      <Text style={st.version}>{APP_VERSION}</Text>
     </KeyboardAvoidingView>
   );
 }
@@ -278,6 +281,7 @@ const st = StyleSheet.create({
   buttonDim: { opacity: 0.6 },
   buttonText: { color: C.primaryText, fontSize: 16, fontWeight: '700' },
   switchText: { color: C.primary, textAlign: 'center', marginTop: 18, fontSize: 14, fontWeight: '600' },
+  version: { color: C.sub, textAlign: 'center', marginTop: 28, fontSize: 12, opacity: 0.7 },
   error: { color: C.danger, textAlign: 'center', marginBottom: 8 },
   success: { color: C.good, textAlign: 'center', marginBottom: 8, fontWeight: '600' },
 

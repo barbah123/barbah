@@ -1,3 +1,5 @@
+export const APP_VERSION = 'v0.4.0';
+
 export const colors = {
   bg: '#0f172a',
   card: '#1e293b',

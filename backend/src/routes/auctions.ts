@@ -40,7 +40,10 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
       favorited = !!fav;
     }
 
-    return json({ ...auction, bids: bids.results, favorited });
+    const watch = await env.DB.prepare('SELECT COUNT(*) AS c FROM favorites WHERE auction_id = ?')
+      .bind(id).first<{ c: number }>();
+
+    return json({ ...auction, bids: bids.results, favorited, watchers: watch?.c ?? 0 });
   }
 
   // POST/DELETE /auctions/:id/favorite

@@ -1,0 +1,323 @@
+// Pokémon Açık Artırma — Expo Snack tek-dosya sürümü (auth + liste + detay/teklif)
+// snack.expo.dev → App.js içeriğini bununla değiştir → Expo Go ile telefonda aç.
+// Ekstra kütüphane gerekmez; canlı backend'e bağlanır.
+
+import { useEffect, useState, useCallback } from 'react';
+import {
+  ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Platform, Pressable,
+  RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
+
+const BASE_URL = 'https://pokemon-auction-api.barbah.workers.dev';
+const C = {
+  bg: '#0f172a', card: '#1e293b', card2: '#273449', text: '#f1f5f9', sub: '#94a3b8',
+  primary: '#6366f1', primaryText: '#fff', accent: '#fbbf24', danger: '#f87171',
+  good: '#34d399', border: '#334155',
+};
+
+let TOKEN = null;
+
+async function request(path, options = {}) {
+  const res = await fetch(BASE_URL + path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'İstek başarısız');
+  return data;
+}
+
+const api = {
+  register: async (email, username, password) => {
+    const d = await request('/auth/register', { method: 'POST', body: JSON.stringify({ email, username, password }) });
+    TOKEN = d.token; return d;
+  },
+  login: async (email, password) => {
+    const d = await request('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    TOKEN = d.token; return d;
+  },
+  logout: () => { TOKEN = null; },
+  listAuctions: () => request('/auctions?status=active'),
+  getAuction: (id) => request('/auctions/' + id),
+  bid: (id, amount) => request('/auctions/' + id + '/bid', { method: 'POST', body: JSON.stringify({ amount }) }),
+};
+
+function timeLeft(endsAt) {
+  const ms = endsAt * 1000 - Date.now();
+  if (ms <= 0) return 'Bitti';
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  if (h >= 24) return Math.floor(h / 24) + 'g ' + (h % 24) + 's';
+  return h + 's ' + m + 'd';
+}
+
+function Thumb({ imageKey, size }) {
+  const dim = { width: size, height: size, borderRadius: 12 };
+  if (imageKey && imageKey !== 'none') {
+    return <Image source={{ uri: BASE_URL + '/images/' + imageKey }} style={[dim, { backgroundColor: C.card2 }]} />;
+  }
+  return (
+    <View style={[dim, st.thumbPlaceholder]}>
+      <Text style={{ fontSize: size * 0.45 }}>🃏</Text>
+    </View>
+  );
+}
+
+// ---------- Auth ----------
+function AuthScreen({ onAuthed }) {
+  const [isRegister, setIsRegister] = useState(false);
+  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function submit() {
+    setError(null);
+    if (!email || !password || (isRegister && !username)) { setError('Lütfen tüm alanları doldurun.'); return; }
+    setLoading(true);
+    try {
+      if (isRegister) await api.register(email.trim(), username.trim(), password);
+      else await api.login(email.trim(), password);
+      onAuthed();
+    } catch (e) { setError(e.message || 'Bir hata oluştu'); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <KeyboardAvoidingView style={st.authContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <Text style={st.logo}>⚡</Text>
+      <Text style={st.title}>Pokémon Açık Artırma</Text>
+      <Text style={st.subtitle}>{isRegister ? 'Hesap oluştur' : 'Tekrar hoş geldin'}</Text>
+      <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="E-posta" autoCapitalize="none" keyboardType="email-address" value={email} onChangeText={setEmail} />
+      {isRegister && <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Kullanıcı adı" autoCapitalize="none" value={username} onChangeText={setUsername} />}
+      <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Parola" secureTextEntry value={password} onChangeText={setPassword} />
+      {error && <Text style={st.error}>{error}</Text>}
+      <Pressable style={({ pressed }) => [st.button, (loading || pressed) && st.buttonDim]} onPress={submit} disabled={loading}>
+        {loading ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>{isRegister ? 'Kayıt ol' : 'Giriş yap'}</Text>}
+      </Pressable>
+      <Pressable onPress={() => { setError(null); setIsRegister(!isRegister); }}>
+        <Text style={st.switchText}>{isRegister ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Kayıt ol'}</Text>
+      </Pressable>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ---------- List ----------
+function AuctionsScreen({ onLogout, onOpen }) {
+  const [auctions, setAuctions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try { setAuctions(await api.listAuctions()); }
+    catch (e) { setError(e.message || 'Liste yüklenemedi'); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <View style={st.center}><ActivityIndicator size="large" color={C.primary} /></View>;
+
+  return (
+    <View style={st.screen}>
+      <View style={st.header}>
+        <View>
+          <Text style={st.headerTitle}>Açık Artırmalar</Text>
+          <Text style={st.headerSub}>{auctions.length} aktif ilan</Text>
+        </View>
+        <Pressable onPress={onLogout} hitSlop={8} style={st.logoutBtn}><Text style={st.logout}>Çıkış</Text></Pressable>
+      </View>
+      {error && <Text style={st.error}>{error}</Text>}
+      <FlatList
+        data={auctions}
+        keyExtractor={(i) => i.id}
+        contentContainerStyle={auctions.length === 0 ? st.emptyWrap : { padding: 16 }}
+        refreshControl={<RefreshControl tintColor={C.sub} refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+        ListEmptyComponent={<Text style={st.empty}>Henüz aktif açık artırma yok.{'\n'}Aşağı çekerek yenileyin.</Text>}
+        renderItem={({ item }) => (
+          <Pressable style={({ pressed }) => [st.card, pressed && { opacity: 0.85 }]} onPress={() => onOpen(item.id)}>
+            <Thumb imageKey={item.card_image_key} size={64} />
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={st.cardTitle} numberOfLines={1}>{item.title}</Text>
+              <Text style={st.seller}>@{item.seller_username}</Text>
+              <View style={st.cardRow}>
+                <Text style={st.price}>{item.current_price} ₺</Text>
+                <View style={st.pill}><Text style={st.pillText}>⏱ {timeLeft(item.ends_at)}</Text></View>
+              </View>
+            </View>
+          </Pressable>
+        )}
+      />
+    </View>
+  );
+}
+
+// ---------- Detail + Bid ----------
+function DetailScreen({ id, onBack }) {
+  const [auction, setAuction] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    try { setAuction(await api.getAuction(id)); }
+    catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [id]);
+  useEffect(() => { load(); }, [load]);
+
+  const minBid = auction ? auction.current_price + auction.min_bid_increment : 0;
+
+  async function placeBid() {
+    setError(null); setMsg(null);
+    const val = Number(amount);
+    if (!val || val < minBid) { setError('En az ' + minBid + ' ₺ teklif vermelisin.'); return; }
+    setBusy(true);
+    try {
+      await api.bid(id, val);
+      setMsg('Teklifin alındı! 🎉'); setAmount('');
+      await load();
+    } catch (e) { setError(e.message || 'Teklif verilemedi'); }
+    finally { setBusy(false); }
+  }
+
+  if (loading) return <View style={st.center}><ActivityIndicator size="large" color={C.primary} /></View>;
+  if (!auction) return (
+    <View style={st.center}><Text style={st.error}>{error || 'Bulunamadı'}</Text>
+      <Pressable onPress={onBack}><Text style={st.switchText}>← Geri</Text></Pressable></View>
+  );
+
+  const ended = auction.ends_at * 1000 <= Date.now() || auction.status !== 'active';
+
+  return (
+    <View style={st.screen}>
+      <View style={st.header}>
+        <Pressable onPress={onBack} hitSlop={8}><Text style={st.back}>← Geri</Text></Pressable>
+        <View style={[st.badge, ended ? st.badgeEnded : st.badgeLive]}>
+          <Text style={st.badgeText}>{ended ? 'Bitti' : '● Canlı'}</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <View style={st.heroWrap}><Thumb imageKey={auction.card_image_key} size={140} /></View>
+        <Text style={st.detailTitle}>{auction.title}</Text>
+        <Text style={st.seller}>@{auction.seller_username}</Text>
+        {!!auction.description && <Text style={st.detailDesc}>{auction.description}</Text>}
+
+        <View style={st.priceBox}>
+          <View>
+            <Text style={st.priceLabel}>Güncel fiyat</Text>
+            <Text style={st.priceBig}>{auction.current_price} ₺</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={st.priceLabel}>Kalan süre</Text>
+            <Text style={st.timeBig}>⏱ {timeLeft(auction.ends_at)}</Text>
+          </View>
+        </View>
+
+        <Text style={st.sectionTitle}>Teklifler ({auction.bids ? auction.bids.length : 0})</Text>
+        {auction.bids && auction.bids.length > 0 ? auction.bids.map((b, i) => (
+          <View key={i} style={st.bidRow}>
+            <Text style={st.bidUser}>@{b.username}</Text>
+            <Text style={st.bidAmount}>{b.amount} ₺</Text>
+          </View>
+        )) : <Text style={st.sub}>Henüz teklif yok. İlk teklifi sen ver!</Text>}
+      </ScrollView>
+
+      {!ended && (
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={st.bidBar}>
+            {error && <Text style={st.error}>{error}</Text>}
+            {msg && <Text style={st.success}>{msg}</Text>}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TextInput
+                style={st.bidInput} placeholderTextColor={C.sub}
+                placeholder={'min ' + minBid + ' ₺'} keyboardType="numeric"
+                value={amount} onChangeText={setAmount}
+              />
+              <Pressable style={({ pressed }) => [st.bidBtn, (busy || pressed) && st.buttonDim]} onPress={placeBid} disabled={busy}>
+                {busy ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>Teklif ver</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      )}
+    </View>
+  );
+}
+
+// ---------- Root ----------
+export default function App() {
+  const [signedIn, setSignedIn] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+
+  let body;
+  if (!signedIn) body = <AuthScreen onAuthed={() => setSignedIn(true)} />;
+  else if (detailId) body = <DetailScreen id={detailId} onBack={() => setDetailId(null)} />;
+  else body = <AuctionsScreen onLogout={() => { api.logout(); setSignedIn(false); }} onOpen={setDetailId} />;
+
+  return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>{body}</SafeAreaView>;
+}
+
+const st = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
+  authContainer: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: C.bg },
+  logo: { fontSize: 56, textAlign: 'center' },
+  title: { fontSize: 26, fontWeight: '800', textAlign: 'center', color: C.text, marginTop: 8 },
+  subtitle: { fontSize: 15, textAlign: 'center', color: C.sub, marginTop: 4, marginBottom: 24 },
+  input: { backgroundColor: C.card, color: C.text, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 16, marginBottom: 12 },
+  button: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
+  buttonDim: { opacity: 0.6 },
+  buttonText: { color: C.primaryText, fontSize: 16, fontWeight: '700' },
+  switchText: { color: C.primary, textAlign: 'center', marginTop: 18, fontSize: 14, fontWeight: '600' },
+  error: { color: C.danger, textAlign: 'center', marginBottom: 8 },
+  success: { color: C.good, textAlign: 'center', marginBottom: 8, fontWeight: '600' },
+
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: C.text },
+  headerSub: { fontSize: 12, color: C.sub, marginTop: 2 },
+  logoutBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.card, borderRadius: 8 },
+  logout: { color: C.danger, fontSize: 14, fontWeight: '700' },
+  back: { color: C.primary, fontSize: 16, fontWeight: '700' },
+
+  card: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 16, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: C.border },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: C.text },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  price: { fontSize: 18, fontWeight: '800', color: C.accent },
+  seller: { fontSize: 13, color: C.sub, marginTop: 2 },
+  pill: { backgroundColor: C.card2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  pillText: { color: C.sub, fontSize: 12, fontWeight: '600' },
+  thumbPlaceholder: { backgroundColor: C.card2, alignItems: 'center', justifyContent: 'center' },
+  empty: { textAlign: 'center', color: C.sub, fontSize: 15, lineHeight: 22 },
+  emptyWrap: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+
+  heroWrap: { alignItems: 'center', marginBottom: 16 },
+  detailTitle: { fontSize: 24, fontWeight: '800', color: C.text, textAlign: 'center' },
+  detailDesc: { fontSize: 15, color: C.sub, marginTop: 12, lineHeight: 21 },
+  priceBox: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: C.card, borderRadius: 16, padding: 16, marginTop: 16, borderWidth: 1, borderColor: C.border },
+  priceLabel: { fontSize: 12, color: C.sub },
+  priceBig: { fontSize: 28, fontWeight: '800', color: C.accent, marginTop: 2 },
+  timeBig: { fontSize: 18, fontWeight: '700', color: C.text, marginTop: 2 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: C.text, marginTop: 24, marginBottom: 8 },
+  sub: { color: C.sub, fontSize: 14 },
+  bidRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  bidUser: { color: C.text, fontSize: 14 },
+  bidAmount: { color: C.accent, fontSize: 14, fontWeight: '700' },
+
+  badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999 },
+  badgeLive: { backgroundColor: 'rgba(52,211,153,0.15)' },
+  badgeEnded: { backgroundColor: C.card2 },
+  badgeText: { color: C.good, fontSize: 12, fontWeight: '700' },
+
+  bidBar: { padding: 16, borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.bg },
+  bidInput: { flex: 1, backgroundColor: C.card, color: C.text, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 16, marginRight: 10 },
+  bidBtn: { backgroundColor: C.primary, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 20, alignItems: 'center' },
+});

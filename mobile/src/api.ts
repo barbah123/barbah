@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://pokemon-auction-api.workers.dev';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://pokemon-auction-api.barbah.workers.dev';
 
 async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync('auth_token');

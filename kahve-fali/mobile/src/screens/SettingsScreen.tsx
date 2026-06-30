@@ -125,13 +125,15 @@ export default function SettingsScreen({
   }, []);
 
   async function testKey() {
-    if (!apiKey.trim()) {
+    const key = apiKey.trim();
+    if (!key && !settings?.has_api_key) {
       Alert.alert('Anahtar gerekli', 'Test için önce API anahtarınızı girin.');
       return;
     }
     setTesting(true);
     try {
-      const { valid } = await api.settings.test(apiKey.trim());
+      // Kutu boşsa kayıtlı anahtar test edilir (key undefined gönderilir).
+      const { valid } = await api.settings.test(key || undefined);
       Alert.alert(valid ? '✅ Geçerli' : '❌ Geçersiz', valid ? 'API anahtarı çalışıyor.' : 'Bu anahtar kabul edilmedi.');
     } catch (e: any) {
       Alert.alert('Hata', e?.message ?? 'Test başarısız');

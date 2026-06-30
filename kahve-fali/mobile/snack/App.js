@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.3.0';
+const APP_VERSION = 'v1.3.1';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -367,10 +367,12 @@ function Settings({ onBack, onLogout }) {
   }, []);
 
   async function test() {
-    if (!apiKey.trim()) { Alert.alert('Anahtar gerekli', 'Önce API anahtarını gir.'); return; }
+    const key = apiKey.trim();
+    if (!key && !(s && s.has_api_key)) { Alert.alert('Anahtar gerekli', 'Önce API anahtarını gir.'); return; }
     setTesting(true);
     try {
-      const { valid } = await api('/me/settings/test', { method: 'POST', body: JSON.stringify({ openai_api_key: apiKey.trim() }) });
+      // Kutu boşsa kayıtlı anahtar test edilir.
+      const { valid } = await api('/me/settings/test', { method: 'POST', body: JSON.stringify(key ? { openai_api_key: key } : {}) });
       Alert.alert(valid ? '✅ Geçerli' : '❌ Geçersiz', valid ? 'API anahtarı çalışıyor.' : 'Bu anahtar kabul edilmedi.');
     } catch (e) { Alert.alert('Hata', e.message); } finally { setTesting(false); }
   }

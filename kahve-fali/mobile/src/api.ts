@@ -93,8 +93,12 @@ export const api = {
     get: (): Promise<Settings> => request('/me/settings'),
     update: (data: SettingsUpdate): Promise<Settings> =>
       request('/me/settings', { method: 'PUT', body: JSON.stringify(data) }),
-    test: (openai_api_key: string): Promise<{ valid: boolean }> =>
-      request('/me/settings/test', { method: 'POST', body: JSON.stringify({ openai_api_key }) }),
+    // Anahtar verilmezse sunucu kayıtlı anahtarı test eder.
+    test: (openai_api_key?: string): Promise<{ valid: boolean }> =>
+      request('/me/settings/test', {
+        method: 'POST',
+        body: JSON.stringify(openai_api_key ? { openai_api_key } : {}),
+      }),
   },
   readings: {
     list: (): Promise<Reading[]> => request('/me/readings'),

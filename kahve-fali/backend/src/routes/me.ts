@@ -1,7 +1,7 @@
 import { Env } from '../index';
 import { json } from '../middleware/cors';
 import { getUser } from '../lib/jwt';
-import { encryptSecret } from '../lib/crypto';
+import { encryptSecret, decryptSecret } from '../lib/crypto';
 import { validateApiKey } from '../lib/openai';
 
 const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'];
@@ -115,11 +115,26 @@ export async function meRoutes(request: Request, env: Env): Promise<Response> {
     });
   }
 
-  // POST /me/settings/test — gönderilen anahtarı OpenAI'a karşı doğrula (henüz kaydetmeden test için)
+  // POST /me/settings/test — anahtarı OpenAI'a karşı doğrula.
+  // Body'de anahtar varsa onu, yoksa kayıtlı anahtarı test eder.
   if (path === '/me/settings/test' && request.method === 'POST') {
     const body = (await request.json().catch(() => ({}))) as { openai_api_key?: string };
-    const key = (body.openai_api_key ?? '').trim();
-    if (!key) return json({ error: 'API anahtarı gerekli' }, 400);
+    let key = (body.openai_api_key ?? '').trim();
+
+    if (!key) {
+      const row = await env.DB.prepare(
+        'SELECT openai_api_key_encrypted FROM user_settings WHERE user_id = ?'
+      ).bind(user.id).first<SettingsRow>();
+      if (!row?.openai_api_key_encrypted) {
+        return json({ error: 'Önce bir API anahtarı girin veya kaydedin.' }, 400);
+      }
+      try {
+        key = await decryptSecret(row.openai_api_key_encrypted, env.ENCRYPTION_KEY);
+      } catch {
+        return json({ error: 'Kayıtlı anahtar çözülemedi, lütfen yeniden kaydedin.' }, 500);
+      }
+    }
+
     const ok = await validateApiKey(key).catch(() => false);
     return json({ valid: ok });
   }

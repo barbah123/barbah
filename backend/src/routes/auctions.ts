@@ -43,7 +43,17 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
     const watch = await env.DB.prepare('SELECT COUNT(*) AS c FROM favorites WHERE auction_id = ?')
       .bind(id).first<{ c: number }>();
 
-    return json({ ...auction, bids: bids.results, favorited, watchers: watch?.c ?? 0 });
+    let images: string[] = [];
+    try {
+      images = JSON.parse((auction as any).image_keys || '[]');
+    } catch {
+      images = [];
+    }
+    if (!images.length && (auction as any).card_image_key && (auction as any).card_image_key !== 'none') {
+      images = [(auction as any).card_image_key];
+    }
+
+    return json({ ...auction, bids: bids.results, favorited, watchers: watch?.c ?? 0, images });
   }
 
   // POST/DELETE /auctions/:id/favorite
@@ -67,7 +77,7 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
     if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
 
-    const { title, description, card_image_key, starting_price, min_bid_increment, duration_hours } = await request.json().catch(() => ({})) as any;
+    const { title, description, condition, card_image_key, image_keys, starting_price, min_bid_increment, duration_hours } = await request.json().catch(() => ({})) as any;
     if (!title || !card_image_key) return json({ error: 'Lütfen tüm alanları doldurun' }, 400);
 
     const isPositiveNumber = (v: any) => typeof v === 'number' && isFinite(v) && v > 0;
@@ -76,13 +86,18 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
     }
     if (duration_hours > 720) return json({ error: 'Süre en fazla 30 gün olabilir' }, 400);
 
+    const keys = Array.isArray(image_keys) && image_keys.length
+      ? image_keys.filter((k: any) => typeof k === 'string').slice(0, 6)
+      : [card_image_key];
+    const cover = keys[0] ?? card_image_key;
+
     const id = crypto.randomUUID();
     const ends_at = Math.floor(Date.now() / 1000) + Math.floor(duration_hours * 3600);
 
     await env.DB.prepare(
-      `INSERT INTO auctions (id, seller_id, title, description, card_image_key, starting_price, min_bid_increment, current_price, ends_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, user.id, title, description ?? '', card_image_key, starting_price, min_bid_increment, starting_price, ends_at).run();
+      `INSERT INTO auctions (id, seller_id, title, description, condition, card_image_key, image_keys, starting_price, min_bid_increment, current_price, ends_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, user.id, title, description ?? '', typeof condition === 'string' ? condition : '', cover, JSON.stringify(keys), starting_price, min_bid_increment, starting_price, ends_at).run();
 
     return json({ id, message: 'Auction created' }, 201);
   }

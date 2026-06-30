@@ -25,18 +25,32 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          # errexit kapalı: çıkış kodlarını elle kontrol ediyoruz ki gerçek hata loglara yazılsın
+          set +e -o pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "ERROR: CLOUDFLARE_API_TOKEN secret bos/tanimsiz. Repo Settings -> Secrets'ten ekleyin."
+            exit 1
+          fi
+
           echo "Checking for existing D1 database..."
-          DB_LIST=$(npx wrangler d1 list 2>&1)
+          DB_LIST=$(npx wrangler d1 list --json 2>&1)
+          STATUS=$?
           echo "$DB_LIST"
-          if echo "$DB_LIST" | grep -q "pokemon-auction-db"; then
-            echo "Database already exists, fetching ID..."
-            DB_ID=$(echo "$DB_LIST" | grep "pokemon-auction-db" | awk '{print $NF}' | tr -d '│ ')
-            echo "Found DB_ID: $DB_ID"
+          if [ $STATUS -ne 0 ]; then
+            echo "ERROR: 'wrangler d1 list' basarisiz (exit $STATUS) - yukaridaki ciktiya bakin (muhtemelen token izinleri ya da account_id)."
+            exit 1
+          fi
+
+          # v4 JSON ciktisini jq ile guvenli parse et (kirilgan tablo-parse yerine)
+          DB_ID=$(echo "$DB_LIST" | jq -r '.[] | select(.name=="pokemon-auction-db") | .uuid' 2>/dev/null)
+          if [ -n "$DB_ID" ]; then
+            echo "Database already exists, DB_ID: $DB_ID"
           else
             echo "Creating D1 database..."
             CREATE_OUTPUT=$(npx wrangler d1 create pokemon-auction-db 2>&1)
             echo "$CREATE_OUTPUT"
-            DB_ID=$(echo "$CREATE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+            DB_ID=$(echo "$CREATE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
             echo "Created DB_ID: $DB_ID"
           fi
           if [ -z "$DB_ID" ]; then

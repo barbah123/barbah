@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://kahve-fali-api.workers.dev';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://kahve-fali-api.barbah.workers.dev';
 
 const TOKEN_KEY = 'auth_token';
 

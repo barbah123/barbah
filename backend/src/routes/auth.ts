@@ -40,7 +40,7 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
 
   if (path === '/auth/register' && request.method === 'POST') {
     const { email, username, password } = await request.json().catch(() => ({})) as any;
-    if (!email || !username || !password) return json({ error: 'Missing fields' }, 400);
+    if (!email || !username || !password) return json({ error: 'Lütfen tüm alanları doldurun' }, 400);
 
     const id = crypto.randomUUID();
     const salt = generateSalt();
@@ -51,7 +51,7 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
         'INSERT INTO users (id, email, username, password_hash, salt) VALUES (?, ?, ?, ?, ?)'
       ).bind(id, email, username, password_hash, salt).run();
     } catch {
-      return json({ error: 'Email or username already exists' }, 409);
+      return json({ error: 'Bu e-posta veya kullanıcı adı zaten kayıtlı' }, 409);
     }
 
     const user = { id, email, username };
@@ -61,16 +61,16 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
 
   if (path === '/auth/login' && request.method === 'POST') {
     const { email, password } = await request.json().catch(() => ({})) as any;
-    if (!email || !password) return json({ error: 'Missing fields' }, 400);
+    if (!email || !password) return json({ error: 'Lütfen tüm alanları doldurun' }, 400);
 
     const row = await env.DB.prepare(
       'SELECT id, email, username, password_hash, salt FROM users WHERE email = ?'
     ).bind(email).first<{ id: string; email: string; username: string; password_hash: string; salt: string }>();
 
-    if (!row) return json({ error: 'Invalid credentials' }, 401);
+    if (!row) return json({ error: 'E-posta veya parola hatalı' }, 401);
 
     const candidate = await hashPassword(password, row.salt);
-    if (!timingSafeEqual(candidate, row.password_hash)) return json({ error: 'Invalid credentials' }, 401);
+    if (!timingSafeEqual(candidate, row.password_hash)) return json({ error: 'E-posta veya parola hatalı' }, 401);
 
     const user = { id: row.id, email: row.email, username: row.username };
     const token = await signJWT(user, env.JWT_SECRET);
@@ -81,7 +81,7 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
   // delivery channel here), then set a new password and sign the user in.
   if (path === '/auth/reset' && request.method === 'POST') {
     const { email, username, password } = await request.json().catch(() => ({})) as any;
-    if (!email || !username || !password) return json({ error: 'Missing fields' }, 400);
+    if (!email || !username || !password) return json({ error: 'Lütfen tüm alanları doldurun' }, 400);
 
     const row = await env.DB.prepare(
       'SELECT id, email, username FROM users WHERE email = ? AND username = ?'
@@ -99,5 +99,5 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
     return json({ token, user });
   }
 
-  return json({ error: 'Not found' }, 404);
+  return json({ error: 'Bulunamadı' }, 404);
 }

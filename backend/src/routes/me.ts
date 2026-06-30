@@ -7,7 +7,7 @@ export async function meRoutes(request: Request, env: Env): Promise<Response> {
   const path = url.pathname;
 
   const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
 
   // GET /me — profile of the authenticated user
   if (path === '/me' && request.method === 'GET') {
@@ -67,5 +67,5 @@ export async function meRoutes(request: Request, env: Env): Promise<Response> {
     return json({ ok: true });
   }
 
-  return json({ error: 'Not found' }, 404);
+  return json({ error: 'Bulunamadı' }, 404);
 }

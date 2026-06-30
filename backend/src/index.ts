@@ -23,12 +23,12 @@ export default {
       if (path.startsWith('/auctions')) return auctionRoutes(request, env);
       if (path.startsWith('/images')) return imageRoutes(request, env);
 
-      return new Response(JSON.stringify({ error: 'Not found' }), {
+      return new Response(JSON.stringify({ error: 'Bulunamadı' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     } catch (e: any) {
-      return new Response(JSON.stringify({ error: e.message }), {
+      return new Response(JSON.stringify({ error: 'Sunucu hatası, lütfen tekrar deneyin' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

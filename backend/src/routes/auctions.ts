@@ -25,7 +25,7 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
       `SELECT a.*, u.username as seller_username FROM auctions a
        JOIN users u ON a.seller_id = u.id WHERE a.id = ?`
     ).bind(id).first();
-    if (!auction) return json({ error: 'Not found' }, 404);
+    if (!auction) return json({ error: 'Bulunamadı' }, 404);
 
     const bids = await env.DB.prepare(
       `SELECT b.amount, b.created_at, u.username FROM bids b
@@ -46,7 +46,7 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
   // POST/DELETE /auctions/:id/favorite
   if (segments.length === 3 && segments[2] === 'favorite' && (request.method === 'POST' || request.method === 'DELETE')) {
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
     const auctionId = segments[1];
 
     if (request.method === 'POST') {
@@ -62,16 +62,16 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
   // POST /auctions
   if (path === '/auctions' && request.method === 'POST') {
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
 
     const { title, description, card_image_key, starting_price, min_bid_increment, duration_hours } = await request.json().catch(() => ({})) as any;
-    if (!title || !card_image_key) return json({ error: 'Missing fields' }, 400);
+    if (!title || !card_image_key) return json({ error: 'Lütfen tüm alanları doldurun' }, 400);
 
     const isPositiveNumber = (v: any) => typeof v === 'number' && isFinite(v) && v > 0;
     if (!isPositiveNumber(starting_price) || !isPositiveNumber(min_bid_increment) || !isPositiveNumber(duration_hours)) {
-      return json({ error: 'starting_price, min_bid_increment and duration_hours must be positive numbers' }, 400);
+      return json({ error: 'Fiyat, artış ve süre pozitif sayı olmalı' }, 400);
     }
-    if (duration_hours > 720) return json({ error: 'duration_hours cannot exceed 720 (30 days)' }, 400);
+    if (duration_hours > 720) return json({ error: 'Süre en fazla 30 gün olabilir' }, 400);
 
     const id = crypto.randomUUID();
     const ends_at = Math.floor(Date.now() / 1000) + Math.floor(duration_hours * 3600);
@@ -87,24 +87,24 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
   // POST /auctions/:id/bid
   if (segments.length === 3 && segments[2] === 'bid' && request.method === 'POST') {
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
 
     const auctionId = segments[1];
     const { amount } = await request.json().catch(() => ({})) as any;
 
     if (typeof amount !== 'number' || !isFinite(amount) || amount <= 0) {
-      return json({ error: 'amount must be a positive number' }, 400);
+      return json({ error: 'Geçerli bir teklif tutarı girin' }, 400);
     }
 
     const auction = await env.DB.prepare(
       'SELECT * FROM auctions WHERE id = ? AND status = "active"'
     ).bind(auctionId).first<any>();
 
-    if (!auction) return json({ error: 'Auction not found or ended' }, 404);
-    if (auction.seller_id === user.id) return json({ error: 'Cannot bid on your own auction' }, 400);
-    if (Math.floor(Date.now() / 1000) > auction.ends_at) return json({ error: 'Auction has ended' }, 400);
+    if (!auction) return json({ error: 'İlan bulunamadı veya sona ermiş' }, 404);
+    if (auction.seller_id === user.id) return json({ error: 'Kendi ilanınıza teklif veremezsiniz' }, 400);
+    if (Math.floor(Date.now() / 1000) > auction.ends_at) return json({ error: 'Açık artırma sona erdi' }, 400);
     if (amount < auction.current_price + auction.min_bid_increment) {
-      return json({ error: `Minimum bid is ${auction.current_price + auction.min_bid_increment}` }, 400);
+      return json({ error: `En düşük teklif ${auction.current_price + auction.min_bid_increment} ₺` }, 400);
     }
 
     // Enforce the price guard atomically so two concurrent bids can't both win.
@@ -115,7 +115,7 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
     ).bind(amount, user.id, auctionId, amount).run();
 
     if (!updated.meta.changes) {
-      return json({ error: 'Bid was outpaced or the auction just ended, try again' }, 409);
+      return json({ error: 'Teklifiniz geçildi veya açık artırma bitti, tekrar deneyin' }, 409);
     }
 
     await env.DB.prepare('INSERT INTO bids (id, auction_id, bidder_id, amount) VALUES (?, ?, ?, ?)')
@@ -140,5 +140,5 @@ export async function auctionRoutes(request: Request, env: Env): Promise<Respons
     return json({ message: 'Bid placed', current_price: amount });
   }
 
-  return json({ error: 'Not found' }, 404);
+  return json({ error: 'Bulunamadı' }, 404);
 }

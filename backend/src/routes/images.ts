@@ -9,20 +9,20 @@ export async function imageRoutes(request: Request, env: Env): Promise<Response>
   // POST /images/upload — returns a pre-signed key after upload
   if (path === '/images/upload' && request.method === 'POST') {
     const user = await getUser(request, env.JWT_SECRET).catch(() => null);
-    if (!user) return json({ error: 'Unauthorized' }, 401);
+    if (!user) return json({ error: 'Oturum açmanız gerekiyor' }, 401);
 
     // Only accept real image types — never store/serve client-controlled HTML/JS
     // from our own origin (stored-XSS / file-hosting abuse).
     const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     const contentType = (request.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase();
     if (!ALLOWED_TYPES.includes(contentType)) {
-      return json({ error: 'Unsupported media type (allowed: jpeg, png, webp, gif)' }, 415);
+      return json({ error: 'Desteklenmeyen dosya türü (jpeg, png, webp, gif olmalı)' }, 415);
     }
 
     const key = `cards/${user.id}/${crypto.randomUUID()}`;
 
     const body = await request.arrayBuffer();
-    if (body.byteLength > 5 * 1024 * 1024) return json({ error: 'File too large (max 5MB)' }, 400);
+    if (body.byteLength > 5 * 1024 * 1024) return json({ error: 'Dosya çok büyük (en fazla 5MB)' }, 400);
 
     await env.BUCKET.put(key, body, { httpMetadata: { contentType } });
     return json({ key });
@@ -32,7 +32,7 @@ export async function imageRoutes(request: Request, env: Env): Promise<Response>
   if (path.startsWith('/images/') && request.method === 'GET') {
     const key = path.replace('/images/', '');
     const obj = await env.BUCKET.get(key);
-    if (!obj) return json({ error: 'Not found' }, 404);
+    if (!obj) return json({ error: 'Bulunamadı' }, 404);
 
     return new Response(obj.body, {
       headers: {
@@ -44,5 +44,5 @@ export async function imageRoutes(request: Request, env: Env): Promise<Response>
     });
   }
 
-  return json({ error: 'Not found' }, 404);
+  return json({ error: 'Bulunamadı' }, 404);
 }

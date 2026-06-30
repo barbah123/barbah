@@ -1,6 +1,7 @@
 import { authRoutes } from './routes/auth';
 import { auctionRoutes } from './routes/auctions';
 import { imageRoutes } from './routes/images';
+import { meRoutes } from './routes/me';
 import { corsHeaders, handleOptions } from './middleware/cors';
 
 export interface Env {
@@ -18,6 +19,7 @@ export default {
 
     try {
       if (path.startsWith('/auth')) return authRoutes(request, env);
+      if (path === '/me' || path.startsWith('/me/')) return meRoutes(request, env);
       if (path.startsWith('/auctions')) return auctionRoutes(request, env);
       if (path.startsWith('/images')) return imageRoutes(request, env);
 

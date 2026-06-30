@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Kahve Falı",
+    "slug": "kahve-fali",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Fincan fotoğrafınızı seçmek için galeri erişimi gerekir.",
+          "cameraPermission": "Fincan fotoğrafı çekmek için kamera erişimi gerekir."
+        }
+      ]
+    ]
+  }
+}

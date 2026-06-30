@@ -1,0 +1,9 @@
+# Yerel geliştirme için bu dosyayı .dev.vars olarak kopyalayın.
+# .dev.vars asla commit edilmez (.gitignore'da).
+
+# JWT imzalama anahtarı (uzun, rastgele bir değer üretin)
+JWT_SECRET="degistir-uzun-rastgele-bir-deger"
+
+# Kullanıcıların OpenAI API anahtarlarını şifrelemek için kullanılan anahtar.
+# Bu değeri kaybederseniz kayıtlı API anahtarları çözülemez.
+ENCRYPTION_KEY="degistir-baska-uzun-rastgele-bir-deger"

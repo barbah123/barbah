@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -42,17 +40,14 @@ export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
   }
 
   return (
-    <KeyboardAvoidingView
+    <ScrollView
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      automaticallyAdjustKeyboardInsets
     >
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.logo}>⚡</Text>
+      <Text style={styles.logo}>⚡</Text>
       <Text style={styles.title}>Pokémon Açık Artırma</Text>
       <Text style={styles.subtitle}>{isRegister ? 'Hesap oluştur' : 'Tekrar hoş geldin'}</Text>
 
@@ -104,9 +99,8 @@ export default function AuthScreen({ onAuthed }: { onAuthed: () => void }) {
         </Text>
       </Pressable>
 
-        <Text style={styles.version}>{APP_VERSION}</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Text style={styles.version}>{APP_VERSION}</Text>
+    </ScrollView>
   );
 }
 

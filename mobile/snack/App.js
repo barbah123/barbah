@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.8.0';
+const APP_VERSION = 'v0.9.0';
 
 let TOKEN = null;
 
@@ -114,8 +114,7 @@ function AuthScreen({ onAuthed }) {
   }
 
   return (
-    <KeyboardAvoidingView style={st.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={st.flex} contentContainerStyle={st.authContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <ScrollView style={st.flex} contentContainerStyle={st.authContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
       <Text style={st.logo}>⚡</Text>
       <Text style={st.title}>Pokémon Açık Artırma</Text>
       <Text style={st.subtitle}>{isRegister ? 'Hesap oluştur' : 'Tekrar hoş geldin'}</Text>
@@ -130,8 +129,7 @@ function AuthScreen({ onAuthed }) {
         <Text style={st.switchText}>{isRegister ? 'Zaten hesabın var mı? Giriş yap' : 'Hesabın yok mu? Kayıt ol'}</Text>
       </Pressable>
       <Text style={st.version}>{APP_VERSION}</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </ScrollView>
   );
 }
 

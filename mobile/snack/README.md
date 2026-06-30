@@ -9,9 +9,10 @@ Canlı backend'e (`pokemon-auction-api.barbah.workers.dev`) bağlanır.
 https://snack.expo.dev/@barbah/pokemon-auction
 ```
 
-Telefonda aç → Expo Go ile "My Device" üzerinden önizle. Snack hesaba kayıtlı
-ve kodu GitHub raw'dan (`App.js`) çeker; güncelleme sonrası `publish.js` yeniden
-çalıştırılarak tazelenir.
+Telefonda aç → Expo Go ile "My Device" üzerinden önizle. Snack hesaba kayıtlı;
+`App.js` içeriği yayında gömülüdür. Kod değişince `publish.js` yeniden
+çalıştırılarak güncellenir. Giriş ekranındaki sürüm etiketi (`v0.x.y`) en yeni
+kodun gelip gelmediğini gösterir.
 
 ### Yeniden yayınlama (kod değişince)
 ```

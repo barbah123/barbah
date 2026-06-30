@@ -1,0 +1,13 @@
+name = "pokemon-auction-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "3e1b8b1eb88b15ef011e981b60b05e77"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pokemon-auction-db"
+database_id = "placeholder"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "pokemon-auction-images"

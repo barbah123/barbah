@@ -26,11 +26,11 @@ type Auction = {
 };
 
 export default function AuctionsScreen({
-  onLogout,
+  onProfile,
   onOpen,
   onCreate,
 }: {
-  onLogout: () => void;
+  onProfile: () => void;
   onOpen: (id: string) => void;
   onCreate: () => void;
 }) {
@@ -76,8 +76,8 @@ export default function AuctionsScreen({
           <Pressable onPress={onCreate} hitSlop={8} style={styles.createBtn}>
             <Text style={styles.createText}>+ Yeni</Text>
           </Pressable>
-          <Pressable onPress={onLogout} hitSlop={8} style={styles.logoutBtn}>
-            <Text style={styles.logout}>Çıkış</Text>
+          <Pressable onPress={onProfile} hitSlop={8} style={styles.profileBtn}>
+            <Text style={styles.profileText}>👤</Text>
           </Pressable>
         </View>
       </View>
@@ -140,8 +140,8 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, color: colors.sub, marginTop: 2 },
   createBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primary, borderRadius: 8, marginRight: 8 },
   createText: { color: colors.primaryText, fontSize: 14, fontWeight: '700' },
-  logoutBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.card, borderRadius: 8 },
-  logout: { color: colors.danger, fontSize: 14, fontWeight: '700' },
+  profileBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  profileText: { fontSize: 18 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

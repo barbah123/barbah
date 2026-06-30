@@ -10,6 +10,7 @@ import AuthScreen from './src/screens/AuthScreen';
 import AuctionsScreen from './src/screens/AuctionsScreen';
 import AuctionDetailScreen from './src/screens/AuctionDetailScreen';
 import CreateAuctionScreen from './src/screens/CreateAuctionScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -43,9 +44,18 @@ export default function App() {
               <Stack.Screen name="Auctions">
                 {({ navigation }) => (
                   <AuctionsScreen
-                    onLogout={handleLogout}
+                    onProfile={() => navigation.navigate('Profile')}
                     onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
                     onCreate={() => navigation.navigate('CreateAuction')}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Profile">
+                {({ navigation }) => (
+                  <ProfileScreen
+                    onBack={() => navigation.goBack()}
+                    onLogout={handleLogout}
+                    onOpen={(id) => navigation.navigate('AuctionDetail', { id })}
                   />
                 )}
               </Stack.Screen>

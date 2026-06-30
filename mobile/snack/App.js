@@ -16,7 +16,7 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.9.0';
+const APP_VERSION = 'v0.10.0';
 
 let TOKEN = null;
 
@@ -59,6 +59,16 @@ const api = {
     if (!res.ok) throw new Error(d.error || 'Yükleme başarısız');
     return d.key;
   },
+  currentUser: () => {
+    if (!TOKEN) return null;
+    try {
+      const bin = atob(TOKEN.split('.')[1]);
+      const json = decodeURIComponent(bin.split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      return JSON.parse(json);
+    } catch (e) { return null; }
+  },
+  myAuctions: () => request('/me/auctions'),
+  myBids: () => request('/me/bids'),
 };
 
 function fmtCountdown(endsAt, now) {
@@ -134,7 +144,7 @@ function AuthScreen({ onAuthed }) {
 }
 
 // ---------- List ----------
-function AuctionsScreen({ onLogout, onOpen, onCreate }) {
+function AuctionsScreen({ onProfile, onOpen, onCreate }) {
   const [auctions, setAuctions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -159,7 +169,7 @@ function AuctionsScreen({ onLogout, onOpen, onCreate }) {
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Pressable onPress={onCreate} hitSlop={8} style={st.createBtn}><Text style={st.createText}>+ Yeni</Text></Pressable>
-          <Pressable onPress={onLogout} hitSlop={8} style={st.logoutBtn}><Text style={st.logout}>Çıkış</Text></Pressable>
+          <Pressable onPress={onProfile} hitSlop={8} style={st.profileBtn}><Text style={st.profileText}>👤</Text></Pressable>
         </View>
       </View>
       {error && <Text style={st.error}>{error}</Text>}
@@ -366,17 +376,106 @@ function CreateScreen({ onDone }) {
   );
 }
 
+// ---------- Profile ----------
+function ProfileScreen({ onBack, onLogout, onOpen }) {
+  const [user] = useState(() => api.currentUser());
+  const [tab, setTab] = useState('selling');
+  const [selling, setSelling] = useState([]);
+  const [bids, setBids] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [s, b] = await Promise.all([api.myAuctions(), api.myBids()]);
+      setSelling(s); setBids(b);
+    } catch (e) {}
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const initial = user && user.username ? user.username[0].toUpperCase() : '?';
+  const data = tab === 'selling' ? selling : bids;
+
+  function bidStatus(item) {
+    const ended = item.status !== 'active' || item.ends_at * 1000 <= Date.now();
+    if (ended) return item.winning ? { t: 'Kazandın 🏆', c: C.good } : { t: 'Kaybettin', c: C.sub };
+    return item.winning ? { t: 'Önde 🟢', c: C.good } : { t: 'Geçildin 🔴', c: C.danger };
+  }
+
+  return (
+    <View style={st.screen}>
+      <View style={st.header}>
+        <Pressable onPress={onBack} hitSlop={8}><Text style={st.back}>← Geri</Text></Pressable>
+        <Text style={st.headerTitle}>Hesabım</Text>
+        <Pressable onPress={onLogout} hitSlop={8}><Text style={st.logout}>Çıkış</Text></Pressable>
+      </View>
+      <View style={st.profile}>
+        <View style={st.avatar}><Text style={st.avatarText}>{initial}</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.username}>{user ? user.username : '...'}</Text>
+          <Text style={st.email}>{user ? user.email : ''}</Text>
+        </View>
+      </View>
+      <View style={st.tabs}>
+        <Pressable style={[st.tab, tab === 'selling' && st.tabActive]} onPress={() => setTab('selling')}>
+          <Text style={[st.tabText, tab === 'selling' && st.tabTextActive]}>Sattıklarım ({selling.length})</Text>
+        </Pressable>
+        <Pressable style={[st.tab, tab === 'bids' && st.tabActive]} onPress={() => setTab('bids')}>
+          <Text style={[st.tabText, tab === 'bids' && st.tabTextActive]}>Tekliflerim ({bids.length})</Text>
+        </Pressable>
+      </View>
+      {loading ? (
+        <View style={st.center}><ActivityIndicator size="large" color={C.primary} /></View>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={data.length === 0 ? st.emptyWrap : { padding: 16 }}
+          refreshControl={<RefreshControl tintColor={C.sub} refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+          ListEmptyComponent={<Text style={st.empty}>{tab === 'selling' ? 'Henüz ilan oluşturmadın.' : 'Henüz teklif vermedin.'}</Text>}
+          renderItem={({ item }) => {
+            const ended = item.status !== 'active' || item.ends_at * 1000 <= Date.now();
+            return (
+              <Pressable style={({ pressed }) => [st.card, pressed && { opacity: 0.85 }]} onPress={() => onOpen(item.id)}>
+                <Thumb imageKey={item.card_image_key} size={56} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={st.cardTitle} numberOfLines={1}>{item.title}</Text>
+                  {tab === 'bids' ? (
+                    <View style={st.profRow}>
+                      <Text style={st.profSub}>Teklifin: <Text style={st.profBid}>{item.my_bid} ₺</Text></Text>
+                      <Text style={[st.profBadge, { color: bidStatus(item).c }]}>{bidStatus(item).t}</Text>
+                    </View>
+                  ) : (
+                    <View style={st.profRow}>
+                      <Text style={st.price}>{item.current_price} ₺</Text>
+                      <Text style={[st.profBadge, { color: ended ? C.sub : C.good }]}>{ended ? 'Bitti' : 'Aktif'}</Text>
+                    </View>
+                  )}
+                  {!ended && <Countdown endsAt={item.ends_at} prefix="⏱ " style={st.profTime} />}
+                </View>
+              </Pressable>
+            );
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
 // ---------- Root ----------
 export default function App() {
   const [signedIn, setSignedIn] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [profile, setProfile] = useState(false);
 
   let body;
   if (!signedIn) body = <AuthScreen onAuthed={() => setSignedIn(true)} />;
+  else if (profile) body = <ProfileScreen onBack={() => setProfile(false)} onLogout={() => { api.logout(); setProfile(false); setSignedIn(false); }} onOpen={(id) => { setProfile(false); setDetailId(id); }} />;
   else if (creating) body = <CreateScreen onDone={() => setCreating(false)} />;
   else if (detailId) body = <DetailScreen id={detailId} onBack={() => setDetailId(null)} />;
-  else body = <AuctionsScreen onLogout={() => { api.logout(); setSignedIn(false); }} onOpen={setDetailId} onCreate={() => setCreating(true)} />;
+  else body = <AuctionsScreen onProfile={() => setProfile(true)} onOpen={setDetailId} onCreate={() => setCreating(true)} />;
 
   return <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }}>{body}</SafeAreaView>;
 }
@@ -405,6 +504,23 @@ const st = StyleSheet.create({
   logout: { color: C.danger, fontSize: 14, fontWeight: '700' },
   createBtn: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.primary, borderRadius: 8, marginRight: 8 },
   createText: { color: C.primaryText, fontSize: 14, fontWeight: '700' },
+  profileBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.card, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border },
+  profileText: { fontSize: 18 },
+  profile: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  avatarText: { color: C.primaryText, fontSize: 24, fontWeight: '800' },
+  username: { fontSize: 18, fontWeight: '800', color: C.text },
+  email: { fontSize: 13, color: C.sub, marginTop: 2 },
+  tabs: { flexDirection: 'row', paddingHorizontal: 16, marginBottom: 4 },
+  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: C.primary },
+  tabText: { color: C.sub, fontSize: 14, fontWeight: '700' },
+  tabTextActive: { color: C.text },
+  profRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  profSub: { color: C.sub, fontSize: 13 },
+  profBid: { color: C.accent, fontWeight: '700' },
+  profBadge: { fontSize: 13, fontWeight: '700' },
+  profTime: { color: C.sub, fontSize: 12, marginTop: 6 },
   imagePicker: { alignItems: 'center', marginBottom: 16 },
   preview: { width: 150, height: 200, borderRadius: 14, backgroundColor: C.card2 },
   previewPlaceholder: { width: 150, height: 200, borderRadius: 14, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },

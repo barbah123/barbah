@@ -8,6 +8,18 @@ async function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
+function decodeToken(token: string): { id: string; email: string; username: string } | null {
+  try {
+    const bin = atob(token.split('.')[1]);
+    const json = decodeURIComponent(
+      bin.split('').map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 async function request(path: string, options: RequestInit = {}) {
   const token = await getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -37,6 +49,14 @@ export const api = {
     },
     logout: () => SecureStore.deleteItemAsync(TOKEN_KEY),
     hasSession: async () => !!(await SecureStore.getItemAsync(TOKEN_KEY)),
+    currentUser: async () => {
+      const t = await getToken();
+      return t ? decodeToken(t) : null;
+    },
+  },
+  me: {
+    auctions: () => request('/me/auctions'),
+    bids: () => request('/me/bids'),
   },
   auctions: {
     list: (status = 'active') => request(`/auctions?status=${status}`),

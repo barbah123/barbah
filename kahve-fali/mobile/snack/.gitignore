@@ -1,0 +1,4 @@
+# publish.js'i yerelde çalıştırmak için kurulan yardımcı paketler (snack-sdk, undici)
+node_modules/
+package.json
+package-lock.json

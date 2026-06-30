@@ -77,5 +77,27 @@ export async function authRoutes(request: Request, env: Env): Promise<Response> 
     return json({ token, user });
   }
 
+  // Test-grade password reset: prove identity with email + username (no email
+  // delivery channel here), then set a new password and sign the user in.
+  if (path === '/auth/reset' && request.method === 'POST') {
+    const { email, username, password } = await request.json().catch(() => ({})) as any;
+    if (!email || !username || !password) return json({ error: 'Missing fields' }, 400);
+
+    const row = await env.DB.prepare(
+      'SELECT id, email, username FROM users WHERE email = ? AND username = ?'
+    ).bind(email, username).first<{ id: string; email: string; username: string }>();
+
+    if (!row) return json({ error: 'E-posta ve kullanıcı adı eşleşen hesap bulunamadı' }, 404);
+
+    const salt = generateSalt();
+    const password_hash = await hashPassword(password, salt);
+    await env.DB.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?')
+      .bind(password_hash, salt, row.id).run();
+
+    const user = { id: row.id, email: row.email, username: row.username };
+    const token = await signJWT(user, env.JWT_SECRET);
+    return json({ token, user });
+  }
+
   return json({ error: 'Not found' }, 404);
 }

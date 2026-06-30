@@ -15,12 +15,20 @@ import * as ImagePicker from 'expo-image-picker';
 import { api } from '../api';
 import { colors } from '../theme';
 
+const DURATIONS = [
+  { label: '6 saat', h: 6 },
+  { label: '12 saat', h: 12 },
+  { label: '1 gün', h: 24 },
+  { label: '3 gün', h: 72 },
+  { label: '7 gün', h: 168 },
+];
+
 export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startingPrice, setStartingPrice] = useState('');
   const [minIncrement, setMinIncrement] = useState('');
-  const [durationHours, setDurationHours] = useState('24');
+  const [durationHours, setDurationHours] = useState(24);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +117,18 @@ export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) 
             <TextInput style={[styles.input, styles.half]} placeholder="Başlangıç ₺" placeholderTextColor={colors.sub} keyboardType="numeric" value={startingPrice} onChangeText={setStartingPrice} />
             <TextInput style={[styles.input, styles.half]} placeholder="Min. artış ₺" placeholderTextColor={colors.sub} keyboardType="numeric" value={minIncrement} onChangeText={setMinIncrement} />
           </View>
-          <TextInput style={styles.input} placeholder="Süre (saat)" placeholderTextColor={colors.sub} keyboardType="numeric" value={durationHours} onChangeText={setDurationHours} />
+          <Text style={styles.label}>Açık artırma süresi</Text>
+          <View style={styles.chips}>
+            {DURATIONS.map((d) => (
+              <Pressable
+                key={d.h}
+                style={[styles.chip, durationHours === d.h && styles.chipActive]}
+                onPress={() => setDurationHours(d.h)}
+              >
+                <Text style={[styles.chipText, durationHours === d.h && styles.chipTextActive]}>{d.label}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
 
@@ -163,6 +182,21 @@ const styles = StyleSheet.create({
   multiline: { height: 80, textAlignVertical: 'top' },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   half: { width: '48%' },
+  label: { color: colors.sub, fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.sub, fontSize: 14, fontWeight: '600' },
+  chipTextActive: { color: colors.primaryText },
   button: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
   buttonText: { color: colors.primaryText, fontSize: 16, fontWeight: '700' },
   error: { color: colors.danger, textAlign: 'center', marginBottom: 8 },

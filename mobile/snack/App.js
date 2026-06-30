@@ -16,7 +16,15 @@ const C = {
   good: '#34d399', border: '#334155',
 };
 
-const APP_VERSION = 'v0.11.0';
+const APP_VERSION = 'v0.12.0';
+
+const DURATIONS = [
+  { label: '6 saat', h: 6 },
+  { label: '12 saat', h: 12 },
+  { label: '1 gün', h: 24 },
+  { label: '3 gün', h: 72 },
+  { label: '7 gün', h: 168 },
+];
 
 let TOKEN = null;
 
@@ -342,7 +350,7 @@ function CreateScreen({ onDone }) {
   const [description, setDescription] = useState('');
   const [startingPrice, setStartingPrice] = useState('');
   const [minIncrement, setMinIncrement] = useState('');
-  const [durationHours, setDurationHours] = useState('24');
+  const [durationHours, setDurationHours] = useState(24);
   const [imageUri, setImageUri] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -390,7 +398,14 @@ function CreateScreen({ onDone }) {
             <TextInput style={[st.input, st.half]} placeholderTextColor={C.sub} placeholder="Başlangıç ₺" keyboardType="numeric" value={startingPrice} onChangeText={setStartingPrice} />
             <TextInput style={[st.input, st.half]} placeholderTextColor={C.sub} placeholder="Min. artış ₺" keyboardType="numeric" value={minIncrement} onChangeText={setMinIncrement} />
           </View>
-          <TextInput style={st.input} placeholderTextColor={C.sub} placeholder="Süre (saat)" keyboardType="numeric" value={durationHours} onChangeText={setDurationHours} />
+          <Text style={st.fieldLabel}>Açık artırma süresi</Text>
+          <View style={st.chips}>
+            {DURATIONS.map((d) => (
+              <Pressable key={d.h} style={[st.chip, durationHours === d.h && st.chipActive]} onPress={() => setDurationHours(d.h)}>
+                <Text style={[st.chipText, durationHours === d.h && st.chipTextActive]}>{d.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           {error && <Text style={st.error}>{error}</Text>}
           <Pressable style={({ pressed }) => [st.button, (busy || pressed) && st.buttonDim]} onPress={submit} disabled={busy}>
             {busy ? <ActivityIndicator color={C.primaryText} /> : <Text style={st.buttonText}>İlanı Oluştur</Text>}
@@ -618,6 +633,12 @@ const st = StyleSheet.create({
   multiline: { height: 80, textAlignVertical: 'top' },
   formRow: { flexDirection: 'row', justifyContent: 'space-between' },
   half: { width: '48%' },
+  fieldLabel: { color: C.sub, fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 2 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, marginRight: 8, marginBottom: 8 },
+  chipActive: { backgroundColor: C.primary, borderColor: C.primary },
+  chipText: { color: C.sub, fontSize: 14, fontWeight: '600' },
+  chipTextActive: { color: C.primaryText },
   back: { color: C.primary, fontSize: 16, fontWeight: '700' },
 
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 16, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: C.border },

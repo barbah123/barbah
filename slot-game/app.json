@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "slot-game",
+    "slug": "slot-game",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1a0b2e",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {}
+  }
+}

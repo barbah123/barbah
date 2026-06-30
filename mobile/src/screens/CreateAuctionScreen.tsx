@@ -23,17 +23,21 @@ const DURATIONS = [
   { label: '7 gün', h: 168 },
 ];
 
+const CONDITIONS = ['Mint', 'Near Mint', 'Excellent', 'Good', 'Played'];
+const MAX_IMAGES = 6;
+
 export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [condition, setCondition] = useState('Near Mint');
   const [startingPrice, setStartingPrice] = useState('');
   const [minIncrement, setMinIncrement] = useState('');
   const [durationHours, setDurationHours] = useState(24);
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageUris, setImageUris] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function pickImage() {
+  async function pickImages() {
     setError(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -42,12 +46,12 @@ export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) 
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [3, 4],
+      allowsMultipleSelection: true,
+      selectionLimit: MAX_IMAGES,
       quality: 0.7,
     });
     if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
+      setImageUris((prev) => [...prev, ...result.assets.map((a) => a.uri)].slice(0, MAX_IMAGES));
     }
   }
 
@@ -67,14 +71,14 @@ export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) 
 
     setBusy(true);
     try {
-      let cardImageKey = 'none';
-      if (imageUri) {
-        cardImageKey = await api.images.upload(imageUri);
-      }
+      const keys: string[] = [];
+      for (const uri of imageUris) keys.push(await api.images.upload(uri));
       await api.auctions.create({
         title: title.trim(),
         description: description.trim(),
-        card_image_key: cardImageKey,
+        condition,
+        card_image_key: keys[0] ?? 'none',
+        image_keys: keys,
         starting_price: sp,
         min_bid_increment: mi,
         duration_hours: dh,
@@ -99,32 +103,50 @@ export default function CreateAuctionScreen({ onDone }: { onDone: () => void }) 
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <Pressable style={styles.imagePicker} onPress={pickImage}>
-            {imageUri ? (
-              <Image source={{ uri: imageUri }} style={styles.preview} />
-            ) : (
-              <View style={styles.previewPlaceholder}>
-                <Text style={{ fontSize: 40 }}>🃏</Text>
-                <Text style={styles.pickHint}>Kart fotoğrafı seç</Text>
+          <Text style={styles.label}>Fotoğraflar ({imageUris.length}/{MAX_IMAGES})</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbRow}>
+            {imageUris.map((uri, i) => (
+              <View key={i} style={styles.thumbWrap}>
+                <Image source={{ uri }} style={styles.thumbImg} />
+                {i === 0 && (
+                  <View style={styles.coverTag}>
+                    <Text style={styles.coverText}>Kapak</Text>
+                  </View>
+                )}
+                <Pressable style={styles.removeBtn} onPress={() => setImageUris((u) => u.filter((_, j) => j !== i))}>
+                  <Text style={styles.removeText}>✕</Text>
+                </Pressable>
               </View>
+            ))}
+            {imageUris.length < MAX_IMAGES && (
+              <Pressable style={styles.addTile} onPress={pickImages}>
+                <Text style={{ fontSize: 30, color: colors.sub }}>＋</Text>
+                <Text style={styles.pickHint}>Foto ekle</Text>
+              </Pressable>
             )}
-          </Pressable>
+          </ScrollView>
 
           <TextInput style={styles.input} placeholder="Başlık (ör. Charizard 1st Ed)" placeholderTextColor={colors.sub} value={title} onChangeText={setTitle} />
           <TextInput style={[styles.input, styles.multiline]} placeholder="Açıklama (opsiyonel)" placeholderTextColor={colors.sub} value={description} onChangeText={setDescription} multiline />
+
+          <Text style={styles.label}>Kart durumu</Text>
+          <View style={styles.chips}>
+            {CONDITIONS.map((c) => (
+              <Pressable key={c} style={[styles.chip, condition === c && styles.chipActive]} onPress={() => setCondition(c)}>
+                <Text style={[styles.chipText, condition === c && styles.chipTextActive]}>{c}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           <View style={styles.row}>
             <TextInput style={[styles.input, styles.half]} placeholder="Başlangıç ₺" placeholderTextColor={colors.sub} keyboardType="numeric" value={startingPrice} onChangeText={setStartingPrice} />
             <TextInput style={[styles.input, styles.half]} placeholder="Min. artış ₺" placeholderTextColor={colors.sub} keyboardType="numeric" value={minIncrement} onChangeText={setMinIncrement} />
           </View>
+
           <Text style={styles.label}>Açık artırma süresi</Text>
           <View style={styles.chips}>
             {DURATIONS.map((d) => (
-              <Pressable
-                key={d.h}
-                style={[styles.chip, durationHours === d.h && styles.chipActive]}
-                onPress={() => setDurationHours(d.h)}
-              >
+              <Pressable key={d.h} style={[styles.chip, durationHours === d.h && styles.chipActive]} onPress={() => setDurationHours(d.h)}>
                 <Text style={[styles.chipText, durationHours === d.h && styles.chipTextActive]}>{d.label}</Text>
               </Pressable>
             ))}
@@ -154,12 +176,17 @@ const styles = StyleSheet.create({
   },
   back: { color: colors.primary, fontSize: 16, fontWeight: '700', width: 52 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
-  imagePicker: { alignItems: 'center', marginBottom: 16 },
-  preview: { width: 150, height: 200, borderRadius: 14, backgroundColor: colors.card2 },
-  previewPlaceholder: {
-    width: 150,
-    height: 200,
-    borderRadius: 14,
+  thumbRow: { marginBottom: 12 },
+  thumbWrap: { marginRight: 10, position: 'relative' },
+  thumbImg: { width: 110, height: 150, borderRadius: 12, backgroundColor: colors.card2 },
+  coverTag: { position: 'absolute', bottom: 6, left: 6, backgroundColor: 'rgba(99,102,241,0.9)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  coverText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  removeBtn: { position: 'absolute', top: -6, right: -6, width: 24, height: 24, borderRadius: 12, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center' },
+  removeText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  addTile: {
+    width: 110,
+    height: 150,
+    borderRadius: 12,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -167,7 +194,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pickHint: { color: colors.sub, marginTop: 8, fontSize: 13 },
+  pickHint: { color: colors.sub, marginTop: 6, fontSize: 12 },
   input: {
     backgroundColor: colors.card,
     color: colors.text,

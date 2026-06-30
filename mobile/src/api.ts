@@ -72,7 +72,9 @@ export const api = {
     create: (data: {
       title: string;
       description?: string;
+      condition?: string;
       card_image_key: string;
+      image_keys?: string[];
       starting_price: number;
       min_bid_increment: number;
       duration_hours: number;

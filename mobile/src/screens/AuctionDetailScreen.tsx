@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,7 +28,11 @@ type AuctionDetail = {
   bids: Bid[];
   favorited?: boolean;
   watchers?: number;
+  condition?: string;
+  images?: string[];
 };
+
+const IMG_W = Dimensions.get('window').width - 32;
 
 export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack: () => void }) {
   const [auction, setAuction] = useState<AuctionDetail | null>(null);
@@ -146,14 +152,41 @@ export default function AuctionDetailScreen({ id, onBack }: { id: string; onBack
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <View style={styles.heroWrap}>
-          <Thumb imageKey={auction.card_image_key} size={220} />
-        </View>
+        {auction.images && auction.images.length > 0 ? (
+          <View>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={styles.gallery}
+            >
+              {auction.images.map((k, i) => (
+                <Image key={i} source={{ uri: api.images.url(k) }} style={styles.galleryImg} />
+              ))}
+            </ScrollView>
+            {auction.images.length > 1 && (
+              <Text style={styles.galleryHint}>📷 {auction.images.length} fotoğraf · kaydır</Text>
+            )}
+          </View>
+        ) : (
+          <View style={styles.heroWrap}>
+            <Thumb imageKey={auction.card_image_key} size={220} />
+          </View>
+        )}
+
         <Text style={styles.detailTitle}>{auction.title}</Text>
         <View style={styles.metaRow}>
           <Text style={styles.seller}>@{auction.seller_username}</Text>
           <Text style={styles.watchers}>👁 {auction.watchers ?? 0} izliyor</Text>
         </View>
+        {!!auction.condition && (
+          <View style={styles.condRow}>
+            <Text style={styles.condLabel}>Kart durumu:</Text>
+            <View style={styles.condBadge}>
+              <Text style={styles.condText}>{auction.condition}</Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.bidCard}>
           <Text style={styles.bidCardLabel}>{ended ? 'Kazanan teklif' : 'Güncel teklif'}</Text>
@@ -251,7 +284,14 @@ const styles = StyleSheet.create({
   badgeText: { color: colors.good, fontSize: 12, fontWeight: '700' },
   heart: { fontSize: 24, color: colors.sub },
   heroWrap: { alignItems: 'center', marginBottom: 16, backgroundColor: colors.card, borderRadius: 16, paddingVertical: 20, borderWidth: 1, borderColor: colors.border },
+  gallery: { borderRadius: 16, marginBottom: 8 },
+  galleryImg: { width: IMG_W, height: 320, borderRadius: 16, backgroundColor: colors.card2, resizeMode: 'cover' },
+  galleryHint: { color: colors.sub, fontSize: 12, textAlign: 'center', marginBottom: 12 },
   detailTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
+  condRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  condLabel: { color: colors.sub, fontSize: 13, marginRight: 8 },
+  condBadge: { backgroundColor: colors.card2, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.border },
+  condText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
   seller: { fontSize: 13, color: colors.sub },
   watchers: { fontSize: 13, color: colors.sub },

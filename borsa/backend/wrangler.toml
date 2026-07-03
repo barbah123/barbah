@@ -16,6 +16,7 @@ database_id = "placeholder"
 # 1) ABD piyasa saatlerinde (UTC 13-21, hafta içi) her 5 dakikada:
 #    açık limit emirleri işle + stratejileri çalıştır (sinyaller Telegram'a gider)
 # 2) Günde 3 kez (açılış sonrası, öğlen, kapanış öncesi): day-trade taraması → Telegram
-#    (SCAN_CRON sabiti src/index.ts içinde — ikisini birlikte değiştirin)
+# 3) Her 10 dakikada: otonom trader döngüsü (analiz+risk+giriş/çıkış) + Telegram raporu
+#    (SCAN_CRON / TRADER_CRON sabitleri src/index.ts içinde — birlikte değiştirin)
 [triggers]
-crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5"]
+crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5", "*/10 13-20 * * 1-5"]

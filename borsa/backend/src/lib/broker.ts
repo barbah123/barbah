@@ -304,6 +304,7 @@ export async function resetPortfolio(db: D1Database, portfolioId: string): Promi
     db.prepare('DELETE FROM positions WHERE portfolio_id = ?').bind(portfolioId),
     db.prepare('DELETE FROM orders WHERE portfolio_id = ?').bind(portfolioId),
     db.prepare('DELETE FROM signals WHERE portfolio_id = ?').bind(portfolioId),
+    db.prepare('DELETE FROM bot_trades WHERE portfolio_id = ?').bind(portfolioId),
     db
       .prepare('UPDATE portfolios SET cash = starting_cash WHERE id = ?')
       .bind(portfolioId),

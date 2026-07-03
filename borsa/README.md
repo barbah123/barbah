@@ -13,7 +13,8 @@ borsa/backend/src/
 │   ├── validation.ts  → DOĞRULAMA         (bakiye, pozisyon, adet, fiyat kontrolleri)
 │   ├── broker.ts      → ARACI YÜRÜTME     (paper-broker: emir dolumu, portföy)
 │   ├── scanner.ts     → TARAMA            (80 hisselik evrende day-trade adayları)
-│   └── telegram.ts    → BİLDİRİM          (sinyal + tarama sonuçları Telegram'a)
+│   ├── trader.ts      → OTONOM TRADER     (analiz→risk→giriş/çıkış→inceleme→rapor)
+│   └── telegram.ts    → BİLDİRİM          (sinyal + tarama + bot raporları Telegram'a)
 ├── routes/            → REST API uçları
 └── index.ts           → yönlendirme + cron tetikleyicileri
 ```
@@ -24,7 +25,7 @@ Akış: **veri → strateji → sinyal → doğrulama → yürütme**. Doğrulam
 
 - **Yahoo Finance** (varsayılan): API anahtarı gerektirmez, ABD hisselerinde neredeyse anlık. Tarayıcı `User-Agent` başlığı zorunludur (kodda hazır).
 - **TradingView**: yalnızca grafik widget'ı olarak gömülüdür — TradingView halka açık veri API'si sunmaz.
-- Yükseltme yolu: gerçek zamanlı WebSocket isterseniz **Finnhub** (ücretsiz anahtar) veya **Alpaca** eklenebilir; tek dokunulacak dosya `lib/data.ts`.
+- Yükseltme yolu (tüm NASDAQ gerçek zamanlı isterseniz): **Alpaca** Algo Trader Plus (~$99/ay, tüm ABD borsaları SIP verisi + broker API) veya **Polygon.io** Advanced (~$199/ay, tick seviyesi). Ara adım: **Finnhub** (ücretsiz anahtarla gerçek zamanlıya yakın WebSocket). Tek dokunulacak dosya `lib/data.ts`.
 
 ## Bileşenler
 
@@ -62,12 +63,26 @@ Yerel geliştirme: `npx wrangler d1 migrations apply borsa-paper-db --local && n
 
 Token tanımlı değilse uygulama normal çalışır, sadece bildirim atlanır.
 
+### Otonom trader botu
+
+Web arayüzündeki **🤖 Bot** sekmesinden (veya `PATCH /api/bot` ile) etkinleştirilir. Her 10 dakikada bir tam döngü çalışır ve **Telegram'a rapor gönderir**:
+
+1. **Piyasa analizi** — 80 hisselik evren taranır (yükselen/düşen genişliği + momentum adayları)
+2. **Risk yönetimi** — açık pozisyonlarda stop-loss / kâr hedefi / iz süren stop / gün sonu kapama
+3. **Giriş kararları** — pozitif momentum + günlük trend filtresi (long-only)
+4. **Pozisyon büyüklüğü** — `riske edilen tutar = özkaynak × risk%`, stop mesafesine bölünür; tek pozisyon ve nakit tavanlarıyla sınırlanır
+5. **İşlem incelemesi** — kazanç oranı, kâr faktörü, en iyi/kötü işlem; düşük performansta optimizasyon önerisi
+
+Korumalar: piyasa kapaliysa veya veri bayatsa işlem yapmaz; stop yenen sembole 1 saat yeniden girmez (soğuma); kapanışa 10 dk kala yeni giriş açmaz ve `flatten_eod` açıksa tüm pozisyonları kapatır (day-trade disiplini).
+
 ### Zamanlanmış görevler (cron)
 
 - `*/5 13-21 * * 1-5` — 5 dakikada bir: açık limit emirlerini doldur + etkin stratejileri çalıştır (sinyaller Telegram'a gider).
 - `40 13,17,19 * * 1-5` — günde 3 kez (açılış sonrası ~16:40 TSİ, öğlen, kapanışa doğru): **day-trade taraması** → en iyi 5 aday Telegram'a.
+- `*/10 13-20 * * 1-5` — her 10 dakikada: **otonom trader döngüsü + Telegram raporu**.
 
 Manuel tarama: `POST /api/scan` (Telegram'a da gönderir), `GET /api/scan` (sadece sonucu döner).
+Manuel bot döngüsü: `POST /api/bot/run` (`?force=1` piyasa kapalıyken test için).
 
 ### Mobil (Expo)
 

@@ -38,6 +38,7 @@ export interface ScanCandidate {
 interface SparkSeries {
   previousClose: number;
   close: number[];
+  lastTime: number; // son barın unix zamanı
 }
 
 async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
@@ -55,7 +56,12 @@ async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> 
       const s = data?.[symbol];
       const closes = (s?.close ?? []).filter((c: number | null) => c != null);
       if (!s || typeof s.previousClose !== 'number' || closes.length < 8) continue;
-      out.set(symbol, { previousClose: s.previousClose, close: closes });
+      const timestamps: number[] = s.timestamp ?? [];
+      out.set(symbol, {
+        previousClose: s.previousClose,
+        close: closes,
+        lastTime: timestamps.length ? timestamps[timestamps.length - 1] : 0,
+      });
     }
   }
   return out;
@@ -110,6 +116,27 @@ async function computeRelativeVolume(symbol: string): Promise<number | null> {
   }
 }
 
+export interface MarketSnapshot {
+  all: ScanCandidate[];
+  scannedCount: number;
+  advancers: number; // önceki kapanışa göre artıda olan hisse sayısı
+  decliners: number;
+  lastBarTime: number; // en güncel bar zamanı (veri tazeliği kontrolü için)
+}
+
+/** Tüm evreni tarar; hem manuel tarama hem otonom bot bu görüntüyü kullanır. */
+export async function scanMarket(): Promise<MarketSnapshot> {
+  const spark = await fetchSpark(SCAN_UNIVERSE);
+  const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
+  return {
+    all,
+    scannedCount: spark.size,
+    advancers: all.filter((c) => c.dayChangePercent > 0).length,
+    decliners: all.filter((c) => c.dayChangePercent < 0).length,
+    lastBarTime: Math.max(0, ...[...spark.values()].map((s) => s.lastTime)),
+  };
+}
+
 export interface ScanResult {
   candidates: ScanCandidate[];
   scannedCount: number;
@@ -121,9 +148,7 @@ export async function runScan(
   options: { top?: number; notify?: boolean } = {}
 ): Promise<ScanResult> {
   const top = options.top ?? 5;
-  const spark = await fetchSpark(SCAN_UNIVERSE);
-
-  const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
+  const { all, scannedCount } = await scanMarket();
   // Anlamlı hareket filtresi: en az %1.5 günlük değişim veya güçlü momentum
   const interesting = all.filter(
     (c) => Math.abs(c.dayChangePercent) >= 1.5 || Math.abs(c.momentumPercent) >= 1
@@ -140,10 +165,10 @@ export async function runScan(
 
   let notified = false;
   if (options.notify && candidates.length && telegramConfigured(env)) {
-    notified = await sendTelegram(env, formatScanMessage(candidates, spark.size));
+    notified = await sendTelegram(env, formatScanMessage(candidates, scannedCount));
   }
 
-  return { candidates, scannedCount: spark.size, notified };
+  return { candidates, scannedCount, notified };
 }
 
 function formatScanMessage(candidates: ScanCandidate[], scanned: number): string {

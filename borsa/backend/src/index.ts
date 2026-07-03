@@ -14,6 +14,8 @@ import { handleOptions, error, json } from './lib/http';
 import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
 import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
+import { runAllTraders } from './lib/trader';
+import { botRoutes } from './routes/bot';
 
 export interface Env {
   DB: D1Database;
@@ -25,6 +27,8 @@ export interface Env {
 
 // Tarama cron'u (Telegram bildirimli): açılış sonrası, öğlen, kapanış öncesi
 const SCAN_CRON = '40 13,17,19 * * 1-5';
+// Otonom trader döngüsü: seans boyunca her 10 dakikada (analiz+risk+giriş/çıkış+rapor)
+const TRADER_CRON = '*/10 13-20 * * 1-5';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -72,6 +76,9 @@ export default {
       if (path.startsWith('/api/strategies') || path === '/api/signals') {
         return await strategyRoutes(request, url, env.DB, portfolio, env);
       }
+      if (path.startsWith('/api/bot')) {
+        return await botRoutes(request, url, env.DB, portfolio, env);
+      }
 
       return error('Bulunamadı', 404);
     } catch (e) {
@@ -91,6 +98,11 @@ export default {
           console.log(
             `Tarama: ${result.scannedCount} hisse, ${result.candidates.length} aday, Telegram: ${result.notified}`
           );
+          return;
+        }
+        if (event.cron === TRADER_CRON) {
+          const count = await runAllTraders(env.DB, env, { report: true });
+          console.log(`Trader döngüsü: ${count} bot çalıştı`);
           return;
         }
         const filled = await processOpenOrders(env.DB);

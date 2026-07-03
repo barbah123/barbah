@@ -409,6 +409,102 @@ async function refreshSignals() {
     : '<div class="empty">Henüz sinyal üretilmedi.</div>';
 }
 
+// --- Otonom Bot ---
+const BOT_FIELDS = [
+  ['risk_per_trade_pct', 'İşlem başına risk %'],
+  ['stop_loss_pct', 'Stop-loss %'],
+  ['take_profit_pct', 'Hedef (kâr al) %'],
+  ['trailing_stop_pct', 'İz süren stop % (0=kapalı)'],
+  ['max_positions', 'Azami eşzamanlı pozisyon'],
+  ['max_position_pct', 'Tek pozisyon azami % (özkaynak)'],
+];
+
+async function refreshBot() {
+  const { config, trades, stats } = await api('/api/bot');
+  const panel = document.getElementById('tab-bot');
+  panel.innerHTML = `
+    <form class="strategy-form" id="botForm">
+      <label><input id="botEnabled" type="checkbox" ${config.enabled ? 'checked' : ''} /> <b>Bot etkin</b></label>
+      ${BOT_FIELDS.map(
+        ([key, label]) =>
+          `<label title="${esc(label)}">${esc(label.split(' ')[0])} <input data-field="${key}" type="number" step="0.1" min="0" value="${config[key]}" style="width:64px" /></label>`
+      ).join('')}
+      <label><input id="botFlatten" type="checkbox" ${config.flatten_eod ? 'checked' : ''} /> Gün sonu kapat</label>
+      <button type="submit" class="btn ghost small">Kaydet</button>
+      <button type="button" id="botRunBtn" class="btn ghost small">▶ Döngüyü Çalıştır</button>
+      <span id="botMsg"></span>
+    </form>
+    <div id="botReport" class="empty" style="text-align:left; white-space:pre-wrap; display:none"></div>
+    ${
+      stats && stats.closedToday
+        ? `<p style="color:var(--muted); margin:6px 0">Son 24s: ${stats.closedToday} işlem · kazanç oranı ${stats.winRate?.toFixed(0)}% · K/Z ${fmtMoney(stats.totalPnl)}${stats.profitFactor != null ? ` · kâr faktörü ${stats.profitFactor.toFixed(2)}` : ''}</p>`
+        : ''
+    }
+    ${
+      trades.length
+        ? `<table><thead><tr>
+            <th>Açılış</th><th>Sembol</th><th>Adet</th><th>Giriş</th><th>Stop</th><th>Hedef</th><th>Çıkış</th><th>K/Z</th><th>Durum</th>
+          </tr></thead><tbody>${trades
+            .map(
+              (t) => `<tr>
+              <td>${fmtTime(t.opened_at)}</td>
+              <td><b>${esc(t.symbol)}</b></td>
+              <td>${fmtNum(t.quantity)}</td>
+              <td title="${esc(t.entry_reason ?? '')}">${fmtMoney(t.entry_price)}</td>
+              <td>${fmtMoney(t.stop_loss)}</td>
+              <td>${fmtMoney(t.take_profit)}</td>
+              <td title="${esc(t.exit_reason ?? '')}">${t.exit_price != null ? fmtMoney(t.exit_price) : '—'}</td>
+              <td class="${t.pnl != null ? cls(t.pnl) : ''}">${t.pnl != null ? fmtMoney(t.pnl) : '—'}</td>
+              <td><span class="pill ${t.status === 'open' ? 'open' : 'filled'}">${t.status === 'open' ? 'Açık' : 'Kapalı'}</span></td>
+            </tr>`
+            )
+            .join('')}</tbody></table>`
+        : '<div class="empty">Bot henüz işlem yapmadı. Etkinleştirin — her 10 dakikada analiz + risk yönetimi yapar ve Telegram\'a rapor gönderir.</div>'
+    }`;
+
+  panel.querySelector('#botForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = {
+      enabled: panel.querySelector('#botEnabled').checked,
+      flatten_eod: panel.querySelector('#botFlatten').checked,
+    };
+    panel.querySelectorAll('[data-field]').forEach((input) => {
+      body[input.dataset.field] = Number(input.value);
+    });
+    const msg = panel.querySelector('#botMsg');
+    try {
+      await api('/api/bot', { method: 'PATCH', body: JSON.stringify(body) });
+      msg.className = 'up';
+      msg.textContent = 'Kaydedildi';
+    } catch (err) {
+      msg.className = 'down';
+      msg.textContent = err.message;
+    }
+  });
+
+  panel.querySelector('#botRunBtn').addEventListener('click', async () => {
+    const msg = panel.querySelector('#botMsg');
+    msg.className = '';
+    msg.textContent = 'Döngü çalışıyor…';
+    try {
+      const result = await api('/api/bot/run', { method: 'POST' });
+      msg.textContent = result.ran
+        ? `Tamamlandı (${result.actions.length} işlem)`
+        : result.skippedReason;
+      const reportEl = panel.querySelector('#botReport');
+      if (result.report) {
+        reportEl.style.display = 'block';
+        reportEl.innerHTML = result.report; // sunucu üretimi güvenli HTML (Telegram formatı)
+      }
+      refreshPortfolio();
+      refreshOrders();
+    } catch (err) {
+      msg.className = 'down';
+      msg.textContent = err.message;
+    }
+  });
+}
+
 // --- Sekmeler ---
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -419,6 +515,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
     if (tab.dataset.tab === 'orders') refreshOrders();
     if (tab.dataset.tab === 'signals') refreshSignals();
     if (tab.dataset.tab === 'strategies') refreshStrategies();
+    if (tab.dataset.tab === 'bot') refreshBot();
   });
 });
 

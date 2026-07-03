@@ -276,12 +276,15 @@ async function findEntries(
     ...recentlyClosed.map((r) => r.symbol),
   ]);
 
-  // Strateji: pozitif momentum + yükseliş yönü + anlamlı günlük hareket (long-only)
+  // Strateji: pozitif momentum + yükseliş yönü + anlamlı günlük hareket (long-only).
+  // Momentum tavanı %4/30dk: dikey fırlamış hisseye tepeden binme (30 günlük
+  // backtest: tavan getiriyi +%6.5'ten +%8.1'e çıkardı, kâr faktörü 1.25→1.30).
   const shortlist = candidates
     .filter(
       (c) =>
         c.direction === 'long' &&
         c.momentumPercent >= 0.5 &&
+        c.momentumPercent <= 4 &&
         c.dayChangePercent >= 1.5 &&
         !held.has(c.symbol)
     )

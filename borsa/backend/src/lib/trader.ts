@@ -11,6 +11,7 @@ import { scanMarket, type ScanCandidate } from './scanner';
 import { getQuotes } from './data';
 import { placeOrder } from './broker';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import { getIntel, getRedditBuzzMap } from './intel';
 
 export interface BotConfig {
   portfolio_id: string;
@@ -276,7 +277,7 @@ async function findEntries(
   ]);
 
   // Strateji: pozitif momentum + yükseliş yönü + anlamlı günlük hareket (long-only)
-  const picks = candidates
+  const shortlist = candidates
     .filter(
       (c) =>
         c.direction === 'long' &&
@@ -285,10 +286,38 @@ async function findEntries(
         !held.has(c.symbol)
     )
     .sort((a, b) => b.score - a.score)
-    .slice(0, slots);
+    .slice(0, slots * 2); // istihbarat elemesi için genişçe kısa liste
 
   const actions: CycleAction[] = [];
-  for (const pick of picks) {
+
+  // İstihbarat katmanı: haber + bilanço + Reddit + Stocktwits
+  // (Reddit haritası tek istekte gelir, sembol başına ekstra maliyeti yok)
+  const redditMap = await getRedditBuzzMap();
+  const intelList = await Promise.all(
+    shortlist.map((c) => getIntel(c.symbol, redditMap))
+  );
+
+  const cleared: { pick: ScanCandidate; intelNotes: string[]; boost: number }[] = [];
+  for (let i = 0; i < shortlist.length; i++) {
+    const intel = intelList[i];
+    if (intel.blockEntry) {
+      actions.push({
+        text: `🛡️ GİRİŞ ENGELLENDİ ${shortlist[i].symbol}: ${intel.blockReason}`,
+      });
+      continue;
+    }
+    // Olumlu istihbarat puana küçük katkı yapar (sıralamayı etkiler, kararı değil)
+    let boost = 0;
+    if (intel.newsScore != null && intel.newsScore >= 0.3) boost += 1.5;
+    if (intel.reddit?.trending) boost += 2;
+    if (intel.stocktwits?.score != null && intel.stocktwits.score >= 0.5) boost += 1;
+    cleared.push({ pick: shortlist[i], intelNotes: intel.notes, boost });
+  }
+
+  cleared.sort((a, b) => b.pick.score + b.boost - (a.pick.score + a.boost));
+  const picks = cleared.slice(0, slots);
+
+  for (const { pick, intelNotes } of picks) {
     // Pozisyon büyüklüğü: riske edilen tutar = özkaynak × risk%; stop mesafesine bölünür
     const riskAmount = equity * (config.risk_per_trade_pct / 100);
     const stopDistance = pick.price * (config.stop_loss_pct / 100);
@@ -303,7 +332,8 @@ async function findEntries(
 
     const reason =
       `momentum ${pick.momentumPercent >= 0 ? '+' : ''}${pick.momentumPercent.toFixed(2)}%/30dk, ` +
-      `gün ${pick.dayChangePercent >= 0 ? '+' : ''}${pick.dayChangePercent.toFixed(2)}%`;
+      `gün ${pick.dayChangePercent >= 0 ? '+' : ''}${pick.dayChangePercent.toFixed(2)}%` +
+      (intelNotes.length ? ` | ${intelNotes.join(', ')}` : '');
     const result = await placeOrder(db, portfolioId, {
       symbol: pick.symbol,
       side: 'buy',

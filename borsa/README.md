@@ -13,6 +13,7 @@ borsa/backend/src/
 │   ├── validation.ts  → DOĞRULAMA         (bakiye, pozisyon, adet, fiyat kontrolleri)
 │   ├── broker.ts      → ARACI YÜRÜTME     (paper-broker: emir dolumu, portföy)
 │   ├── scanner.ts     → TARAMA            (80 hisselik evrende day-trade adayları)
+│   ├── intel.ts       → İSTİHBARAT        (haber + bilanço takvimi + Reddit/Stocktwits)
 │   ├── trader.ts      → OTONOM TRADER     (analiz→risk→giriş/çıkış→inceleme→rapor)
 │   └── telegram.ts    → BİLDİRİM          (sinyal + tarama + bot raporları Telegram'a)
 ├── routes/            → REST API uçları
@@ -69,7 +70,12 @@ Web arayüzündeki **🤖 Bot** sekmesinden (veya `PATCH /api/bot` ile) etkinle�
 
 1. **Piyasa analizi** — 80 hisselik evren taranır (yükselen/düşen genişliği + momentum adayları)
 2. **Risk yönetimi** — açık pozisyonlarda stop-loss / kâr hedefi / iz süren stop / gün sonu kapama
-3. **Giriş kararları** — pozitif momentum + günlük trend filtresi (long-only)
+3. **Giriş kararları** — pozitif momentum + günlük trend filtresi (long-only), ardından **istihbarat elemesi**:
+   - 🛡️ **Bilanço 2 gün içindeyse giriş engellenir** (ikili olay riski)
+   - 🛡️ **Haber akışı belirgin olumsuzsa engellenir** (başlık duygu skoru)
+   - 🛡️ **Stocktwits duyarlılığı ağır bearish ise engellenir**
+   - ➕ Olumlu haber, Reddit/WSB trendi ve bullish Stocktwits sıralamayı yükseltir; gerekçe emre işlenir
+   - Kaynaklar: Yahoo haber, Yahoo bilanço takvimi, ApeWisdom (Reddit), Stocktwits — hepsi fail-open: kaynak çökmüşse işlem durmaz, yalnızca kesin olumsuz istihbarat engeller
 4. **Pozisyon büyüklüğü** — `riske edilen tutar = özkaynak × risk%`, stop mesafesine bölünür; tek pozisyon ve nakit tavanlarıyla sınırlanır
 5. **İşlem incelemesi** — kazanç oranı, kâr faktörü, en iyi/kötü işlem; düşük performansta optimizasyon önerisi
 

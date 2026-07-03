@@ -1,6 +1,7 @@
 // Piyasa uçları (portföyden bağımsız): anlık fiyat, mum verisi, sembol arama
 
 import { getQuotes, getCandles, searchSymbols } from '../lib/data';
+import { getIntel } from '../lib/intel';
 import { json, error } from '../lib/http';
 
 export async function marketRoutes(request: Request, url: URL): Promise<Response> {
@@ -19,6 +20,13 @@ export async function marketRoutes(request: Request, url: URL): Promise<Response
     const q = (url.searchParams.get('q') ?? '').trim();
     if (q.length < 1) return json({ results: [] });
     return json({ results: await searchSymbols(q) });
+  }
+
+  // İstihbarat: haber + bilanço tarihi + Reddit/Stocktwits duyarlılığı
+  if (path === '/api/intel' && request.method === 'GET') {
+    const symbol = (url.searchParams.get('symbol') ?? '').trim().toUpperCase();
+    if (!symbol) return error('symbol parametresi gerekli');
+    return json({ intel: await getIntel(symbol) });
   }
 
   if (path === '/api/candles' && request.method === 'GET') {

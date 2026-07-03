@@ -45,7 +45,8 @@ export default {
       if (
         path === '/api/quotes' ||
         path === '/api/search' ||
-        path === '/api/candles'
+        path === '/api/candles' ||
+        path === '/api/intel'
       ) {
         return await marketRoutes(request, url);
       }

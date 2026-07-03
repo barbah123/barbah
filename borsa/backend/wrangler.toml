@@ -1,0 +1,21 @@
+name = "borsa-paper-api"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+account_id = "3e1b8b1eb88b15ef011e981b60b05e77"
+
+# Web arayüzü aynı Worker'dan servis edilir
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "borsa-paper-db"
+database_id = "placeholder"
+
+# 1) ABD piyasa saatlerinde (UTC 13-21, hafta içi) her 5 dakikada:
+#    açık limit emirleri işle + stratejileri çalıştır (sinyaller Telegram'a gider)
+# 2) Günde 3 kez (açılış sonrası, öğlen, kapanış öncesi): day-trade taraması → Telegram
+#    (SCAN_CRON sabiti src/index.ts içinde — ikisini birlikte değiştirin)
+[triggers]
+crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5"]

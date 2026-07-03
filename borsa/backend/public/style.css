@@ -1,0 +1,237 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --border: #2d333b;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --green: #3fb950;
+  --red: #f85149;
+  --accent: #58a6ff;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden { display: none !important; }
+.up { color: var(--green); }
+.down { color: var(--red); }
+
+/* Üst bar */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.brand { font-size: 18px; font-weight: 700; }
+.badge {
+  font-size: 10px;
+  background: var(--accent);
+  color: #04121f;
+  border-radius: 4px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+.account { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.stat { display: flex; flex-direction: column; align-items: flex-end; }
+.stat .label { font-size: 11px; color: var(--muted); }
+.stat .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Ana düzen */
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+@media (max-width: 800px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { max-height: 260px; }
+}
+
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.search-box { position: relative; padding: 10px; }
+.search-box input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.search-results {
+  position: absolute;
+  top: 48px; left: 10px; right: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  z-index: 30;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.search-results .item {
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.search-results .item:hover { background: var(--panel); }
+.search-results .item .name {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watchlist { list-style: none; overflow-y: auto; flex: 1; }
+.watchlist li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.watchlist li:hover, .watchlist li.active { background: var(--panel-2); }
+.watchlist .sym { font-weight: 600; }
+.watchlist .quote { text-align: right; font-variant-numeric: tabular-nums; }
+.watchlist .quote .chg { font-size: 12px; }
+.watchlist .rm {
+  border: none; background: none; color: var(--muted);
+  cursor: pointer; margin-left: 8px; font-size: 12px;
+}
+.watchlist .rm:hover { color: var(--red); }
+
+/* Grafik + işlem paneli */
+.center { display: flex; flex-direction: column; min-width: 0; }
+.chart { flex: 1; min-height: 380px; }
+
+.trade-panel {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+}
+.trade-header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+.trade-symbol { font-size: 17px; font-weight: 700; }
+.trade-price { font-size: 16px; font-variant-numeric: tabular-nums; }
+.trade-position { color: var(--muted); font-size: 12px; }
+.trade-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.trade-form input {
+  width: 110px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.est-cost { color: var(--muted); font-size: 12px; min-width: 120px; }
+.trade-msg { margin-top: 8px; font-size: 13px; min-height: 18px; }
+
+.seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg-btn {
+  padding: 8px 14px;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+.seg-btn.active { background: var(--accent); color: #04121f; }
+#sideSeg .seg-btn.active[data-value="buy"] { background: var(--green); }
+#sideSeg .seg-btn.active[data-value="sell"] { background: var(--red); }
+
+.btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  color: #fff;
+}
+.btn.buy { background: var(--green); color: #04120a; }
+.btn.sell { background: var(--red); color: #1f0505; }
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+}
+.btn.ghost:hover { color: var(--text); }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+
+/* Alt sekmeler */
+.bottom { background: var(--panel); border-top: 1px solid var(--border); }
+.tabs { display: flex; border-bottom: 1px solid var(--border); }
+.tab {
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+.tab.active { color: var(--text); border-bottom: 2px solid var(--accent); }
+.tab-panel { padding: 10px 14px; max-height: 320px; overflow-y: auto; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-size: 12px; font-weight: 600; }
+th:first-child, td:first-child { text-align: left; }
+.empty { color: var(--muted); padding: 16px; text-align: center; }
+
+/* Strateji formu */
+.strategy-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.strategy-form input, .strategy-form select {
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.strategy-form input { width: 100px; }
+.strategy-form label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+
+.pill {
+  font-size: 11px;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+.pill.buy { background: rgba(63, 185, 80, .15); color: var(--green); }
+.pill.sell { background: rgba(248, 81, 73, .15); color: var(--red); }
+.pill.open { background: rgba(88, 166, 255, .15); color: var(--accent); }
+.pill.filled { background: rgba(63, 185, 80, .15); color: var(--green); }
+.pill.cancelled, .pill.skipped { background: rgba(139, 148, 158, .15); color: var(--muted); }
+.pill.rejected { background: rgba(248, 81, 73, .15); color: var(--red); }
+.pill.executed { background: rgba(63, 185, 80, .15); color: var(--green); }
+.pill.new { background: rgba(88, 166, 255, .15); color: var(--accent); }

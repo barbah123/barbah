@@ -1,0 +1,165 @@
+// TARAMA KATMANI (günlük trade adayı bulucu)
+// Likit ABD hisselerinden oluşan evreni tek toplu istekle tarar (Yahoo spark),
+// gap / günlük değişim / son 30 dk momentum / gün içi oynaklığa göre puanlar,
+// en iyi adaylar için göreli hacmi hesaplar ve Telegram bildirimi gönderir.
+
+import { getCandles } from './data';
+import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+
+const YAHOO = 'https://query1.finance.yahoo.com';
+const UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+// Day trade evreni: mega-cap + yüksek betalı popüler hisseler.
+// Değiştirmek için bu listeyi düzenlemek yeterli.
+export const SCAN_UNIVERSE = [
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'AVGO', 'NFLX', 'AMD',
+  'INTC', 'MU', 'QCOM', 'ARM', 'SMCI', 'TSM', 'PLTR', 'CRWD', 'PANW', 'NET',
+  'SNOW', 'DDOG', 'MDB', 'ORCL', 'CRM', 'ADBE', 'SHOP', 'SQ', 'PYPL', 'AFRM',
+  'UPST', 'HOOD', 'COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'SOFI', 'NIO', 'XPEV',
+  'LI', 'RIVN', 'LCID', 'F', 'GM', 'BA', 'DIS', 'UBER', 'ABNB', 'DKNG',
+  'RBLX', 'U', 'SPOT', 'SNAP', 'ROKU', 'ZM', 'GME', 'AMC', 'CVNA', 'AI',
+  'IONQ', 'RGTI', 'BABA', 'JD', 'PDD', 'JPM', 'BAC', 'GS', 'XOM', 'CVX',
+  'WMT', 'KO', 'PFE', 'MRNA', 'UNH', 'LLY', 'CAT', 'GE', 'VZ', 'T',
+];
+
+export interface ScanCandidate {
+  symbol: string;
+  price: number;
+  dayChangePercent: number; // önceki kapanışa göre
+  gapPercent: number; // açılış vs önceki kapanış
+  momentumPercent: number; // son ~30 dk değişim
+  rangePercent: number; // gün içi (yüksek-düşük)/önceki kapanış
+  relativeVolume: number | null; // bugünkü bar hacmi / önceki günlerin bar hacmi
+  direction: 'long' | 'short';
+  score: number;
+}
+
+interface SparkSeries {
+  previousClose: number;
+  close: number[];
+}
+
+async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
+  const out = new Map<string, SparkSeries>();
+  // Yahoo spark istek başına en fazla 20 sembol kabul eder → 80'lik evren 4 istek
+  for (let i = 0; i < symbols.length; i += 20) {
+    const chunk = symbols.slice(i, i + 20);
+    const res = await fetch(
+      `${YAHOO}/v8/finance/spark?symbols=${chunk.join(',')}&range=1d&interval=5m`,
+      { headers: { 'User-Agent': UA, Accept: 'application/json' } }
+    );
+    if (!res.ok) continue;
+    const data: any = await res.json();
+    for (const symbol of chunk) {
+      const s = data?.[symbol];
+      const closes = (s?.close ?? []).filter((c: number | null) => c != null);
+      if (!s || typeof s.previousClose !== 'number' || closes.length < 8) continue;
+      out.set(symbol, { previousClose: s.previousClose, close: closes });
+    }
+  }
+  return out;
+}
+
+function analyze(symbol: string, s: SparkSeries): ScanCandidate {
+  const prev = s.previousClose;
+  const first = s.close[0];
+  const last = s.close[s.close.length - 1];
+  const momIndex = Math.max(0, s.close.length - 7); // ~30 dk önce (6 x 5dk bar)
+  const momBase = s.close[momIndex];
+  const high = Math.max(...s.close);
+  const low = Math.min(...s.close);
+
+  const dayChangePercent = ((last - prev) / prev) * 100;
+  const gapPercent = ((first - prev) / prev) * 100;
+  const momentumPercent = momBase ? ((last - momBase) / momBase) * 100 : 0;
+  const rangePercent = ((high - low) / prev) * 100;
+
+  // Puan: momentum en değerli (devam eden hareket), sonra günlük değişim ve oynaklık
+  const score =
+    Math.abs(momentumPercent) * 2 + Math.abs(dayChangePercent) + rangePercent * 0.5;
+
+  return {
+    symbol,
+    price: last,
+    dayChangePercent,
+    gapPercent,
+    momentumPercent,
+    rangePercent,
+    relativeVolume: null,
+    direction: dayChangePercent >= 0 ? 'long' : 'short',
+    score,
+  };
+}
+
+/** Adayın bugünkü ortalama bar hacmini önceki günlerinkiyle karşılaştırır. */
+async function computeRelativeVolume(symbol: string): Promise<number | null> {
+  try {
+    const candles = await getCandles(symbol, '5m', '5d');
+    if (candles.length < 50) return null;
+    const todayKey = Math.floor(candles[candles.length - 1].t / 86400);
+    const today = candles.filter((c) => Math.floor(c.t / 86400) === todayKey);
+    const before = candles.filter((c) => Math.floor(c.t / 86400) !== todayKey);
+    if (today.length < 3 || before.length < 20) return null;
+    const avg = (arr: typeof candles) =>
+      arr.reduce((sum, c) => sum + c.v, 0) / arr.length;
+    const prevAvg = avg(before);
+    return prevAvg > 0 ? avg(today) / prevAvg : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface ScanResult {
+  candidates: ScanCandidate[];
+  scannedCount: number;
+  notified: boolean;
+}
+
+export async function runScan(
+  env: TelegramEnv,
+  options: { top?: number; notify?: boolean } = {}
+): Promise<ScanResult> {
+  const top = options.top ?? 5;
+  const spark = await fetchSpark(SCAN_UNIVERSE);
+
+  const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
+  // Anlamlı hareket filtresi: en az %1.5 günlük değişim veya güçlü momentum
+  const interesting = all.filter(
+    (c) => Math.abs(c.dayChangePercent) >= 1.5 || Math.abs(c.momentumPercent) >= 1
+  );
+  interesting.sort((a, b) => b.score - a.score);
+  const candidates = interesting.slice(0, top);
+
+  // Sadece kısa listeye hacim analizi (sembol başına 1 istek)
+  await Promise.all(
+    candidates.map(async (c) => {
+      c.relativeVolume = await computeRelativeVolume(c.symbol);
+    })
+  );
+
+  let notified = false;
+  if (options.notify && candidates.length && telegramConfigured(env)) {
+    notified = await sendTelegram(env, formatScanMessage(candidates, spark.size));
+  }
+
+  return { candidates, scannedCount: spark.size, notified };
+}
+
+function formatScanMessage(candidates: ScanCandidate[], scanned: number): string {
+  const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  const lines = candidates.map((c, i) => {
+    const dir = c.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
+    const vol =
+      c.relativeVolume != null ? ` | hacim ${c.relativeVolume.toFixed(1)}x` : '';
+    return (
+      `${i + 1}. <b>${c.symbol}</b> ${dir} — $${c.price.toFixed(2)}\n` +
+      `   gün ${pct(c.dayChangePercent)} | gap ${pct(c.gapPercent)} | 30dk ${pct(c.momentumPercent)}${vol}`
+    );
+  });
+  return (
+    `📊 <b>Günlük Trade Taraması</b> (${scanned} hisse tarandı)\n\n` +
+    lines.join('\n') +
+    `\n\n⚠️ Bunlar yatırım tavsiyesi değil, paper trading adaylarıdır.`
+  );
+}

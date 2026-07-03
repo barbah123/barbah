@@ -116,9 +116,49 @@ async function computeRelativeVolume(symbol: string): Promise<number | null> {
   }
 }
 
+// DİNAMİK EVREN: Yahoo'nun hazır tarayıcılarından (günün en çok yükselenleri +
+// en hacimlileri) sembol çekilir ve sabit evrene eklenir. Böylece "bugün kim
+// oynuyorsa" tarafımızdan taranır. Uç erişilemezse sabit 80 ile devam (fail-open).
+const DYNAMIC_MAX = 60; // Workers istek bütçesi için tavan (evren toplamı ≤ 140)
+const SYMBOL_RE = /^[A-Z]{1,5}$/; // ABD hissesi; birim/varant/OTC uzantılarını eler
+
+let dynamicCache: { at: number; symbols: string[] } | null = null;
+const DYNAMIC_TTL_MS = 10 * 60 * 1000;
+
+async function getDynamicSymbols(): Promise<string[]> {
+  if (dynamicCache && Date.now() - dynamicCache.at < DYNAMIC_TTL_MS) {
+    return dynamicCache.symbols;
+  }
+  const found: string[] = [];
+  for (const scrId of ['day_gainers', 'most_actives']) {
+    try {
+      const res = await fetch(
+        `${YAHOO}/v1/finance/screener/predefined/saved?scrIds=${scrId}&count=50`,
+        { headers: { 'User-Agent': UA, Accept: 'application/json' } }
+      );
+      if (!res.ok) continue;
+      const data: any = await res.json();
+      for (const q of data?.finance?.result?.[0]?.quotes ?? []) {
+        const symbol = String(q.symbol ?? '').toUpperCase();
+        // Sadece likit, penny olmayan ABD hisseleri
+        if (!SYMBOL_RE.test(symbol)) continue;
+        if (q.quoteType && q.quoteType !== 'EQUITY') continue;
+        if (typeof q.regularMarketPrice === 'number' && q.regularMarketPrice < 3) continue;
+        found.push(symbol);
+      }
+    } catch {
+      // tarayıcı erişilemedi: kalan kaynaklarla devam
+    }
+  }
+  const symbols = [...new Set(found)].slice(0, DYNAMIC_MAX);
+  dynamicCache = { at: Date.now(), symbols };
+  return symbols;
+}
+
 export interface MarketSnapshot {
   all: ScanCandidate[];
   scannedCount: number;
+  dynamicCount: number; // dinamik evrenden gelen (sabit listede olmayan) sembol sayısı
   advancers: number; // önceki kapanışa göre artıda olan hisse sayısı
   decliners: number;
   lastBarTime: number; // en güncel bar zamanı (veri tazeliği kontrolü için)
@@ -126,11 +166,15 @@ export interface MarketSnapshot {
 
 /** Tüm evreni tarar; hem manuel tarama hem otonom bot bu görüntüyü kullanır. */
 export async function scanMarket(): Promise<MarketSnapshot> {
-  const spark = await fetchSpark(SCAN_UNIVERSE);
+  const dynamic = await getDynamicSymbols();
+  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic])];
+  const dynamicCount = universe.length - SCAN_UNIVERSE.length;
+  const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
   return {
     all,
     scannedCount: spark.size,
+    dynamicCount,
     advancers: all.filter((c) => c.dayChangePercent > 0).length,
     decliners: all.filter((c) => c.dayChangePercent < 0).length,
     lastBarTime: Math.max(0, ...[...spark.values()].map((s) => s.lastTime)),
@@ -140,6 +184,7 @@ export async function scanMarket(): Promise<MarketSnapshot> {
 export interface ScanResult {
   candidates: ScanCandidate[];
   scannedCount: number;
+  dynamicCount: number;
   notified: boolean;
 }
 
@@ -148,7 +193,7 @@ export async function runScan(
   options: { top?: number; notify?: boolean } = {}
 ): Promise<ScanResult> {
   const top = options.top ?? 5;
-  const { all, scannedCount } = await scanMarket();
+  const { all, scannedCount, dynamicCount } = await scanMarket();
   // Anlamlı hareket filtresi: en az %1.5 günlük değişim veya güçlü momentum
   const interesting = all.filter(
     (c) => Math.abs(c.dayChangePercent) >= 1.5 || Math.abs(c.momentumPercent) >= 1
@@ -168,7 +213,7 @@ export async function runScan(
     notified = await sendTelegram(env, formatScanMessage(candidates, scannedCount));
   }
 
-  return { candidates, scannedCount, notified };
+  return { candidates, scannedCount, dynamicCount, notified };
 }
 
 function formatScanMessage(candidates: ScanCandidate[], scanned: number): string {

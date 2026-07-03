@@ -384,7 +384,7 @@ function formatReport(
   equity: number,
   cash: number,
   totalPnl: number,
-  breadth: { advancers: number; decliners: number; scannedCount: number },
+  breadth: { advancers: number; decliners: number; scannedCount: number; dynamicCount: number },
   actions: string[],
   openTrades: BotTrade[],
   priceMap: Map<string, number>,
@@ -399,7 +399,7 @@ function formatReport(
     `💼 Özkaynak ${money(equity)} | Nakit ${money(cash)} | Toplam K/Z ${sign(totalPnl)}${money(Math.abs(totalPnl))}`
   );
   lines.push(
-    `📊 Piyasa: ${breadth.advancers}▲ / ${breadth.decliners}▼ (${breadth.scannedCount} hisse)`
+    `📊 Piyasa: ${breadth.advancers}▲ / ${breadth.decliners}▼ (${breadth.scannedCount} hisse, ${breadth.dynamicCount} dinamik)`
   );
 
   lines.push('', `<b>Bu döngüdeki işlemler:</b>`);

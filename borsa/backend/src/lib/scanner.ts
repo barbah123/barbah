@@ -35,13 +35,13 @@ export interface ScanCandidate {
   score: number;
 }
 
-interface SparkSeries {
+export interface SparkSeries {
   previousClose: number;
   close: number[];
   lastTime: number; // son barın unix zamanı
 }
 
-async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
+export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
   const out = new Map<string, SparkSeries>();
   // Yahoo spark istek başına en fazla 20 sembol kabul eder → 80'lik evren 4 istek
   for (let i = 0; i < symbols.length; i += 20) {
@@ -125,7 +125,7 @@ const SYMBOL_RE = /^[A-Z]{1,5}$/; // ABD hissesi; birim/varant/OTC uzantıların
 let dynamicCache: { at: number; symbols: string[] } | null = null;
 const DYNAMIC_TTL_MS = 10 * 60 * 1000;
 
-async function getDynamicSymbols(): Promise<string[]> {
+export async function getDynamicSymbols(): Promise<string[]> {
   if (dynamicCache && Date.now() - dynamicCache.at < DYNAMIC_TTL_MS) {
     return dynamicCache.symbols;
   }
@@ -164,10 +164,12 @@ export interface MarketSnapshot {
   lastBarTime: number; // en güncel bar zamanı (veri tazeliği kontrolü için)
 }
 
-/** Tüm evreni tarar; hem manuel tarama hem otonom bot bu görüntüyü kullanır. */
-export async function scanMarket(): Promise<MarketSnapshot> {
+/** Tüm evreni tarar; manuel tarama, otonom bot ve nabız dedektörü bu görüntüyü kullanır.
+ *  extraSymbols: sıcak sembol hafızası (son günlerin kazananları / nabız alarmları)
+ *  gibi kaynaklardan gelen ek izleme sembolleri. */
+export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSnapshot> {
   const dynamic = await getDynamicSymbols();
-  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic])];
+  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic, ...extraSymbols])];
   const dynamicCount = universe.length - SCAN_UNIVERSE.length;
   const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
@@ -191,7 +193,7 @@ export interface ScanResult {
 
 export async function runScan(
   env: TelegramEnv,
-  options: { top?: number; notify?: boolean } = {}
+  options: { top?: number; notify?: boolean; db?: D1Database } = {}
 ): Promise<ScanResult> {
   const top = options.top ?? 5;
   const { all, scannedCount, dynamicCount, lastBarTime } = await scanMarket();
@@ -214,6 +216,23 @@ export async function runScan(
   // mesajlanıyor ve o fiyatlarla işlem yapılamıyor.
   const dataAgeSeconds = Date.now() / 1000 - lastBarTime;
   const stale = dataAgeSeconds > 30 * 60;
+
+  // Sıcak sembol hafızası: bugünün adayları sonraki günlerde de izlensin
+  if (options.db && !stale) {
+    for (const c of candidates) {
+      try {
+        await options.db
+          .prepare(
+            `INSERT INTO hot_symbols (symbol, day, source, score) VALUES (?, date('now'), 'scan', ?)
+             ON CONFLICT (symbol, day) DO UPDATE SET score = MAX(COALESCE(hot_symbols.score, 0), COALESCE(excluded.score, 0))`
+          )
+          .bind(c.symbol, c.score)
+          .run();
+      } catch {
+        // hafıza yazılamazsa tarama yine de sürer
+      }
+    }
+  }
 
   let notified = false;
   if (options.notify && candidates.length && !stale && telegramConfigured(env)) {

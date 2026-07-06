@@ -12,6 +12,7 @@ import { getQuotes } from './data';
 import { placeOrder } from './broker';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
 import { getIntel, getRedditBuzzMap } from './intel';
+import { getHotSymbols } from './pulse';
 
 export interface BotConfig {
   portfolio_id: string;
@@ -454,8 +455,9 @@ export async function runTraderCycle(
     return { ...empty, skippedReason: 'Piyasa kapalı (ABD seansı dışı)' };
   }
 
-  // 1. Piyasa analizi
-  const snapshot = await scanMarket();
+  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
+  const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
+  const snapshot = await scanMarket(hotSymbols);
   const dataFresh = Date.now() / 1000 - snapshot.lastBarTime < DATA_FRESH_SECONDS;
   if (!dataFresh && !options.force) {
     return { ...empty, skippedReason: 'Veri bayat (tatil/kesinti olabilir), işlem yapılmadı' };

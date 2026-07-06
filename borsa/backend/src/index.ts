@@ -15,6 +15,7 @@ import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
 import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
 import { runAllTraders } from './lib/trader';
+import { runPulse, type PulseAlert } from './lib/pulse';
 import { botRoutes } from './routes/bot';
 
 export interface Env {
@@ -54,7 +55,25 @@ export default {
       // Tarama katmanı: günlük trade adaylarını bul (POST + notify → Telegram'a da gönder)
       if (path === '/api/scan' && (request.method === 'GET' || request.method === 'POST')) {
         const notify = request.method === 'POST' && url.searchParams.get('notify') !== '0';
-        const result = await runScan(env, { notify });
+        const result = await runScan(env, { notify, db: env.DB });
+        return json(result);
+      }
+
+      // Nabız dedektörü: son alarmlar + manuel tetikleme
+      if (path === '/api/pulse' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM pulse_alerts ORDER BY created_at DESC LIMIT 50')
+          .all<PulseAlert>();
+        return json({ alerts: results });
+      }
+      if (path === '/api/pulse/run' && request.method === 'POST') {
+        const force = url.searchParams.get('force') === '1';
+        const minBurstParam = Number(url.searchParams.get('minBurst'));
+        const result = await runPulse(env.DB, env, {
+          force,
+          minBurst: Number.isFinite(minBurstParam) && minBurstParam > 0 ? minBurstParam : undefined,
+          notify: url.searchParams.get('notify') !== '0',
+        });
         return json(result);
       }
 
@@ -95,7 +114,7 @@ export default {
     ctx.waitUntil(
       (async () => {
         if (event.cron === SCAN_CRON) {
-          const result = await runScan(env, { notify: true });
+          const result = await runScan(env, { notify: true, db: env.DB });
           console.log(
             `Tarama: ${result.scannedCount} hisse, ${result.candidates.length} aday, Telegram: ${result.notified}`
           );
@@ -108,8 +127,18 @@ export default {
         }
         const filled = await processOpenOrders(env.DB);
         const summary = await runStrategies(env.DB, undefined, env);
+        // Nabız dedektörü: erken momentum patlamalarını yakala → anında Telegram
+        let pulseInfo = 'atlandı';
+        try {
+          const pulse = await runPulse(env.DB, env);
+          pulseInfo = pulse.ran
+            ? `${pulse.alerts.length} alarm (${pulse.triggered.length} tetik)`
+            : pulse.skippedReason ?? 'atlandı';
+        } catch (e) {
+          console.error('Nabız hatası:', e);
+        }
         console.log(
-          `Cron: ${filled} limit emri doldu; strateji özeti: ${JSON.stringify(summary)}`
+          `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}`
         );
       })()
     );

@@ -14,7 +14,7 @@ import { handleOptions, error, json } from './lib/http';
 import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
 import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
-import { runAllTraders } from './lib/trader';
+import { runAllTraders, enterFromPulseAlerts } from './lib/trader';
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { botRoutes } from './routes/bot';
 
@@ -134,6 +134,11 @@ export default {
           pulseInfo = pulse.ran
             ? `${pulse.alerts.length} alarm (${pulse.triggered.length} tetik)`
             : pulse.skippedReason ?? 'atlandı';
+          // Erken yakalanan hareket, 10 dk döngüsünü beklemeden işleme dönsün
+          if (pulse.alerts.length) {
+            const entered = await enterFromPulseAlerts(env.DB, env, pulse.alerts);
+            if (entered) pulseInfo += `, ${entered} anında giriş`;
+          }
         } catch (e) {
           console.error('Nabız hatası:', e);
         }

@@ -60,6 +60,9 @@ const SESSION_OPEN_MIN = 13 * 60 + 30;
 const SESSION_CLOSE_MIN = 20 * 60;
 const FLATTEN_BEFORE_MIN = 10;
 const DATA_FRESH_SECONDS = 15 * 60;
+// Giriş için gün tavanı: gün +%8'i geçmiş hisse "erken" değildir — tepeden alma
+// (6 Tem seansı: +%17 AXTI, +%14 CRDO, +%12 BE tepeden alınıp hepsi ekside sallandı)
+const MAX_ENTRY_DAY_PCT = 8;
 
 export async function getBotConfig(db: D1Database, portfolioId: string): Promise<BotConfig> {
   const existing = await db
@@ -277,9 +280,14 @@ async function findEntries(
     ...recentlyClosed.map((r) => r.symbol),
   ]);
 
-  // Strateji: pozitif momentum + yükseliş yönü + anlamlı günlük hareket (long-only).
+  // Strateji: pozitif momentum + yükseliş yönü + anlamlı ama ERKEN günlük hareket.
   // Momentum tavanı %4/30dk: dikey fırlamış hisseye tepeden binme (30 günlük
   // backtest: tavan getiriyi +%6.5'ten +%8.1'e çıkardı, kâr faktörü 1.25→1.30).
+  // Gün tavanı %8: hareketin çoğu bitmiş hisseye girme (tepe avcılığı önlemi).
+  // Sıralama: ham "score" gün değişimini ödüllendirip tepeleri seçiyordu;
+  // entryRank taze momentumu ödüllendirir, %4 üstü her gün-puanını cezalandırır.
+  const entryRank = (c: ScanCandidate) =>
+    c.momentumPercent * 2 - Math.max(0, c.dayChangePercent - 4);
   const shortlist = candidates
     .filter(
       (c) =>
@@ -287,9 +295,10 @@ async function findEntries(
         c.momentumPercent >= 0.5 &&
         c.momentumPercent <= 4 &&
         c.dayChangePercent >= 1.5 &&
+        c.dayChangePercent <= MAX_ENTRY_DAY_PCT &&
         !held.has(c.symbol)
     )
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => entryRank(b) - entryRank(a))
     .slice(0, slots * 2); // istihbarat elemesi için genişçe kısa liste
 
   const actions: CycleAction[] = [];
@@ -318,67 +327,193 @@ async function findEntries(
     cleared.push({ pick: shortlist[i], intelNotes: intel.notes, boost });
   }
 
-  cleared.sort((a, b) => b.pick.score + b.boost - (a.pick.score + a.boost));
+  cleared.sort((a, b) => entryRank(b.pick) + b.boost - (entryRank(a.pick) + a.boost));
   const picks = cleared.slice(0, slots);
 
   for (const { pick, intelNotes } of picks) {
-    // Pozisyon büyüklüğü: riske edilen tutar = özkaynak × risk%; stop mesafesine bölünür
-    const riskAmount = equity * (config.risk_per_trade_pct / 100);
-    const stopDistance = pick.price * (config.stop_loss_pct / 100);
-    let qty = Math.floor(riskAmount / stopDistance);
-    // Tavanlar: tek pozisyon özkaynağın max_position_pct'sini ve nakdi aşamaz
-    qty = Math.min(
-      qty,
-      Math.floor((equity * (config.max_position_pct / 100)) / pick.price),
-      Math.floor(portfolio.cash / pick.price)
-    );
-    if (qty < 1) continue;
-
-    const reason =
-      `momentum ${pick.momentumPercent >= 0 ? '+' : ''}${pick.momentumPercent.toFixed(2)}%/30dk, ` +
-      `gün ${pick.dayChangePercent >= 0 ? '+' : ''}${pick.dayChangePercent.toFixed(2)}%` +
-      (intelNotes.length ? ` | ${intelNotes.join(', ')}` : '');
-    const result = await placeOrder(db, portfolioId, {
+    const res = await executeEntry(db, portfolioId, config, equity, portfolio.cash, {
       symbol: pick.symbol,
-      side: 'buy',
-      type: 'market',
-      quantity: qty,
-      source: 'bot',
-      note: reason,
-    });
-    if ('error' in result) {
-      actions.push({ text: `⚠️ ${pick.symbol} girişi doğrulamadan döndü: ${result.error}` });
-      continue;
-    }
-    const entry = result.order.fill_price ?? pick.price;
-    const stopLoss = entry * (1 - config.stop_loss_pct / 100);
-    const takeProfit = entry * (1 + config.take_profit_pct / 100);
-    await db
-      .prepare(
-        `INSERT INTO bot_trades (id, portfolio_id, symbol, quantity, entry_price, stop_loss, take_profit, high_water, entry_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        crypto.randomUUID(),
-        portfolioId,
-        pick.symbol,
-        qty,
-        entry,
-        stopLoss,
-        takeProfit,
-        entry,
-        reason
-      )
-      .run();
-    actions.push({
+      price: pick.price,
+      momentumPercent: pick.momentumPercent,
+      dayChangePercent: pick.dayChangePercent,
+    }, intelNotes);
+    if (res.action) actions.push(res.action);
+    portfolio.cash -= res.spent;
+  }
+  return actions;
+}
+
+export interface EntryPick {
+  symbol: string;
+  price: number;
+  momentumPercent: number;
+  dayChangePercent: number;
+}
+
+/** Pozisyon büyüklüğü + emir + bot defteri kaydı: hem 10 dk döngüsü hem nabız girişi kullanır. */
+async function executeEntry(
+  db: D1Database,
+  portfolioId: string,
+  config: BotConfig,
+  equity: number,
+  availableCash: number,
+  pick: EntryPick,
+  intelNotes: string[],
+  momentumWindow = '30dk'
+): Promise<{ action: CycleAction | null; spent: number }> {
+  // Pozisyon büyüklüğü: riske edilen tutar = özkaynak × risk%; stop mesafesine bölünür
+  const riskAmount = equity * (config.risk_per_trade_pct / 100);
+  const stopDistance = pick.price * (config.stop_loss_pct / 100);
+  let qty = Math.floor(riskAmount / stopDistance);
+  // Tavanlar: tek pozisyon özkaynağın max_position_pct'sini ve nakdi aşamaz
+  qty = Math.min(
+    qty,
+    Math.floor((equity * (config.max_position_pct / 100)) / pick.price),
+    Math.floor(availableCash / pick.price)
+  );
+  if (qty < 1) return { action: null, spent: 0 };
+
+  const reason =
+    `momentum ${pick.momentumPercent >= 0 ? '+' : ''}${pick.momentumPercent.toFixed(2)}%/${momentumWindow}, ` +
+    `gün ${pick.dayChangePercent >= 0 ? '+' : ''}${pick.dayChangePercent.toFixed(2)}%` +
+    (intelNotes.length ? ` | ${intelNotes.join(', ')}` : '');
+  const result = await placeOrder(db, portfolioId, {
+    symbol: pick.symbol,
+    side: 'buy',
+    type: 'market',
+    quantity: qty,
+    source: 'bot',
+    note: reason,
+  });
+  if ('error' in result) {
+    return {
+      action: { text: `⚠️ ${pick.symbol} girişi doğrulamadan döndü: ${result.error}` },
+      spent: 0,
+    };
+  }
+  const entry = result.order.fill_price ?? pick.price;
+  const stopLoss = entry * (1 - config.stop_loss_pct / 100);
+  const takeProfit = entry * (1 + config.take_profit_pct / 100);
+  await db
+    .prepare(
+      `INSERT INTO bot_trades (id, portfolio_id, symbol, quantity, entry_price, stop_loss, take_profit, high_water, entry_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      crypto.randomUUID(),
+      portfolioId,
+      pick.symbol,
+      qty,
+      entry,
+      stopLoss,
+      takeProfit,
+      entry,
+      reason
+    )
+    .run();
+  return {
+    action: {
       text:
         `🟢 GİRİŞ ${pick.symbol} ${qty} adet @ $${entry.toFixed(2)} ` +
         `(stop $${stopLoss.toFixed(2)}, hedef $${takeProfit.toFixed(2)}) — ${reason}`,
-    });
-    // Nakit güncellendi; sonraki girişler için yerelde de düş
-    portfolio.cash -= qty * entry;
+    },
+    spent: qty * entry,
+  };
+}
+
+/**
+ * Nabız alarmı → anında giriş denemesi (10 dk döngüsünü beklemeden).
+ * 6 Tem dersi: IQMX alarmı 17:30'da $14.35'ten geldi, bot 18:30'da $14.93'ten girdi.
+ * Sadece hâlâ erken safhadaki (gün ≤ %8) alarmlar işleme dönüşür; istihbarat
+ * elemesi ve tüm pozisyon tavanları aynen uygulanır.
+ */
+export async function enterFromPulseAlerts(
+  db: D1Database,
+  telegram: TelegramEnv,
+  alerts: { symbol: string; price: number; change_15m: number; day_change: number }[]
+): Promise<number> {
+  const viable = alerts.filter((a) => a.day_change <= MAX_ENTRY_DAY_PCT);
+  if (!viable.length) return 0;
+
+  // Seans dışında veya kapanışa yakın giriş yok
+  const minutes = nowMinutesUtc();
+  const canEnter =
+    isWeekday() &&
+    minutes >= SESSION_OPEN_MIN &&
+    minutes < SESSION_CLOSE_MIN - FLATTEN_BEFORE_MIN;
+  if (!canEnter) return 0;
+
+  const { results: configs } = await db
+    .prepare('SELECT * FROM bot_config WHERE enabled = 1')
+    .all<BotConfig>();
+
+  let entered = 0;
+  for (const config of configs) {
+    const portfolioId = config.portfolio_id;
+    const { results: openTrades } = await db
+      .prepare("SELECT symbol FROM bot_trades WHERE portfolio_id = ? AND status = 'open'")
+      .bind(portfolioId)
+      .all<{ symbol: string }>();
+    let slots = config.max_positions - openTrades.length;
+    if (slots <= 0) continue;
+
+    const { results: positions } = await db
+      .prepare('SELECT symbol, quantity, avg_cost FROM positions WHERE portfolio_id = ?')
+      .bind(portfolioId)
+      .all<{ symbol: string; quantity: number; avg_cost: number }>();
+    const { results: recentlyClosed } = await db
+      .prepare(
+        `SELECT DISTINCT symbol FROM bot_trades WHERE portfolio_id = ?
+         AND status = 'closed' AND closed_at > datetime('now', '-60 minutes')`
+      )
+      .bind(portfolioId)
+      .all<{ symbol: string }>();
+    const held = new Set([
+      ...openTrades.map((t) => t.symbol),
+      ...positions.map((p) => p.symbol),
+      ...recentlyClosed.map((r) => r.symbol),
+    ]);
+
+    const portfolio = await db
+      .prepare('SELECT cash FROM portfolios WHERE id = ?')
+      .bind(portfolioId)
+      .first<{ cash: number }>();
+    if (!portfolio) continue;
+    let cash = portfolio.cash;
+    const equity = cash + positions.reduce((s, p) => s + p.quantity * p.avg_cost, 0);
+
+    for (const alert of viable) {
+      if (slots <= 0) break;
+      if (held.has(alert.symbol)) continue;
+
+      const intel = await getIntel(alert.symbol).catch(() => null);
+      if (intel?.blockEntry) continue;
+
+      const res = await executeEntry(
+        db,
+        portfolioId,
+        config,
+        equity,
+        cash,
+        {
+          symbol: alert.symbol,
+          price: alert.price,
+          momentumPercent: alert.change_15m,
+          dayChangePercent: alert.day_change,
+        },
+        ['⚡ nabız girişi', ...(intel?.notes ?? [])],
+        '15dk'
+      );
+      if (res.action && res.spent > 0) {
+        entered++;
+        slots--;
+        held.add(alert.symbol);
+        cash -= res.spent;
+        await sendTelegram(telegram, `🤖 <b>Nabız Girişi</b>\n${res.action.text}`);
+      }
+    }
   }
-  return actions;
+  return entered;
 }
 
 function formatReport(
@@ -392,7 +527,7 @@ function formatReport(
   stats: TradeStats
 ): string {
   const money = (v: number) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-  const sign = (v: number) => (v >= 0 ? '+' : '');
+  const sign = (v: number) => (v >= 0 ? '+' : '-');
 
   const lines: string[] = [];
   lines.push(`🤖 <b>Trader Botu Raporu</b>`);

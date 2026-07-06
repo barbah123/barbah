@@ -183,6 +183,7 @@ export async function scanMarket(): Promise<MarketSnapshot> {
 
 export interface ScanResult {
   candidates: ScanCandidate[];
+  stale?: boolean; // veri 30 dk'dan eski (piyasa kapalı) — bildirim gönderilmez
   scannedCount: number;
   dynamicCount: number;
   notified: boolean;
@@ -193,7 +194,7 @@ export async function runScan(
   options: { top?: number; notify?: boolean } = {}
 ): Promise<ScanResult> {
   const top = options.top ?? 5;
-  const { all, scannedCount, dynamicCount } = await scanMarket();
+  const { all, scannedCount, dynamicCount, lastBarTime } = await scanMarket();
   // Anlamlı hareket filtresi: en az %1.5 günlük değişim veya güçlü momentum
   const interesting = all.filter(
     (c) => Math.abs(c.dayChangePercent) >= 1.5 || Math.abs(c.momentumPercent) >= 1
@@ -208,15 +209,24 @@ export async function runScan(
     })
   );
 
+  // Bayat veri koruması: son bar 30 dk'dan eskiyse (tatil/kesinti) bildirim gönderme.
+  // Aksi halde tatil günlerinde önceki seansın kapanış fiyatları "canlı aday" gibi
+  // mesajlanıyor ve o fiyatlarla işlem yapılamıyor.
+  const dataAgeSeconds = Date.now() / 1000 - lastBarTime;
+  const stale = dataAgeSeconds > 30 * 60;
+
   let notified = false;
-  if (options.notify && candidates.length && telegramConfigured(env)) {
-    notified = await sendTelegram(env, formatScanMessage(candidates, scannedCount));
+  if (options.notify && candidates.length && !stale && telegramConfigured(env)) {
+    notified = await sendTelegram(env, formatScanMessage(candidates, scannedCount, lastBarTime));
+  }
+  if (options.notify && stale) {
+    console.log(`Tarama bildirimi atlandı: veri ${Math.round(dataAgeSeconds / 60)} dk eski (piyasa kapalı olabilir)`);
   }
 
-  return { candidates, scannedCount, dynamicCount, notified };
+  return { candidates, scannedCount, dynamicCount, notified, stale };
 }
 
-function formatScanMessage(candidates: ScanCandidate[], scanned: number): string {
+function formatScanMessage(candidates: ScanCandidate[], scanned: number, lastBarTime: number): string {
   const pct = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
   const lines = candidates.map((c, i) => {
     const dir = c.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
@@ -227,9 +237,16 @@ function formatScanMessage(candidates: ScanCandidate[], scanned: number): string
       `   gün ${pct(c.dayChangePercent)} | gap ${pct(c.gapPercent)} | 30dk ${pct(c.momentumPercent)}${vol}`
     );
   });
+  // Veri zaman damgası (TSİ) — kullanıcı fiyatların hangi ana ait olduğunu görsün
+  const asOf = new Date((lastBarTime + 3 * 3600) * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .slice(0, 16);
   return (
-    `📊 <b>Günlük Trade Taraması</b> (${scanned} hisse tarandı)\n\n` +
+    `📊 <b>Günlük Trade Taraması</b> (${scanned} hisse tarandı)\n` +
+    `🕐 Veri zamanı: ${asOf} TSİ\n\n` +
     lines.join('\n') +
-    `\n\n⚠️ Bunlar yatırım tavsiyesi değil, paper trading adaylarıdır.`
+    `\n\n⚠️ Fiyatlar veri zamanına aittir; emir anındaki fiyat farklı olabilir.\n` +
+    `⚠️ Bunlar yatırım tavsiyesi değil, paper trading adaylarıdır.`
   );
 }

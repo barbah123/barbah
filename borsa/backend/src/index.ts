@@ -16,6 +16,7 @@ import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
 import { runAllTraders, enterFromPulseAlerts } from './lib/trader';
 import { runPulse, type PulseAlert } from './lib/pulse';
+import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { botRoutes } from './routes/bot';
 
 export interface Env {
@@ -57,6 +58,50 @@ export default {
         const notify = request.method === 'POST' && url.searchParams.get('notify') !== '0';
         const result = await runScan(env, { notify, db: env.DB });
         return json(result);
+      }
+
+      // Seviye alarmları: listeleme, ekleme, silme
+      if (path === '/api/levels' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM level_alerts ORDER BY created_at DESC LIMIT 100')
+          .all<LevelAlert>();
+        return json({ levels: results });
+      }
+      if (path === '/api/levels' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const symbol = String(body.symbol ?? '').toUpperCase().trim();
+        const level = Number(body.level);
+        const direction = body.direction;
+        if (!symbol) return error('Sembol gerekli');
+        if (!Number.isFinite(level) || level <= 0) return error('Geçerli bir seviye girin');
+        if (direction !== 'above' && direction !== 'below') {
+          return error('direction "above" veya "below" olmalı');
+        }
+        const id = crypto.randomUUID();
+        await env.DB
+          .prepare(
+            'INSERT INTO level_alerts (id, symbol, level, direction, note) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(id, symbol, level, direction, body.note ?? null)
+          .run();
+        const row = await env.DB
+          .prepare('SELECT * FROM level_alerts WHERE id = ?')
+          .bind(id)
+          .first<LevelAlert>();
+        return json({ level: row }, 201);
+      }
+      const levelDelete = path.match(/^\/api\/levels\/([\w-]+)$/);
+      if (levelDelete && request.method === 'DELETE') {
+        await env.DB
+          .prepare('DELETE FROM level_alerts WHERE id = ?')
+          .bind(levelDelete[1])
+          .run();
+        return json({ ok: true });
       }
 
       // Nabız dedektörü: son alarmlar + manuel tetikleme
@@ -142,8 +187,15 @@ export default {
         } catch (e) {
           console.error('Nabız hatası:', e);
         }
+        // Seviye bekçisi: kullanıcı tanımlı fiyat seviyeleri
+        let levelInfo = 0;
+        try {
+          levelInfo = await checkLevelAlerts(env.DB, env);
+        } catch (e) {
+          console.error('Seviye alarmı hatası:', e);
+        }
         console.log(
-          `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}`
+          `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}; seviye: ${levelInfo}`
         );
       })()
     );

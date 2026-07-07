@@ -17,6 +17,8 @@ import { runScan } from './lib/scanner';
 import { runAllTraders, enterFromPulseAlerts } from './lib/trader';
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
+import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
+import { getQuote } from './lib/data';
 import { botRoutes } from './routes/bot';
 
 export interface Env {
@@ -102,6 +104,82 @@ export default {
           .bind(levelDelete[1])
           .run();
         return json({ ok: true });
+      }
+
+      // Manuel pozisyon takibi: listeleme, ekleme, kapatma
+      if (path === '/api/tracked' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM tracked_positions ORDER BY created_at DESC LIMIT 100')
+          .all<TrackedPosition>();
+        return json({ tracked: results });
+      }
+      if (path === '/api/tracked' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const symbol = String(body.symbol ?? '').toUpperCase().trim();
+        const quantity = Number(body.quantity);
+        const entryPrice = Number(body.entry_price);
+        if (!symbol) return error('Sembol gerekli');
+        if (!Number.isFinite(quantity) || quantity <= 0) return error('Geçerli adet girin');
+        if (!Number.isFinite(entryPrice) || entryPrice <= 0) return error('Geçerli giriş fiyatı girin');
+        const id = crypto.randomUUID();
+        await env.DB
+          .prepare(
+            'INSERT INTO tracked_positions (id, symbol, quantity, entry_price, note) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(id, symbol, quantity, entryPrice, body.note ?? null)
+          .run();
+        const row = await env.DB
+          .prepare('SELECT * FROM tracked_positions WHERE id = ?')
+          .bind(id)
+          .first<TrackedPosition>();
+        return json({ tracked: row }, 201);
+      }
+      const trackedClose = path.match(/^\/api\/tracked\/([\w-]+)\/close$/);
+      if (trackedClose && request.method === 'POST') {
+        let body: any = {};
+        try {
+          body = await request.json();
+        } catch {
+          // gövde opsiyonel: verilmezse güncel fiyattan kapat
+        }
+        const row = await env.DB
+          .prepare("SELECT * FROM tracked_positions WHERE id = ? AND status = 'active'")
+          .bind(trackedClose[1])
+          .first<TrackedPosition>();
+        if (!row) return error('Aktif takip pozisyonu bulunamadı', 404);
+        let exitPrice = Number(body.exit_price);
+        if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
+          const quote = await getQuote(row.symbol);
+          if (!quote) return error('Güncel fiyat alınamadı, exit_price gönderin');
+          exitPrice = quote.price;
+        }
+        const pnl = (exitPrice - row.entry_price) * row.quantity;
+        await env.DB
+          .prepare(
+            `UPDATE tracked_positions SET status = 'closed', exit_price = ?, pnl = ?, closed_at = datetime('now') WHERE id = ?`
+          )
+          .bind(exitPrice, pnl, row.id)
+          .run();
+        return json({ ok: true, exit_price: exitPrice, pnl });
+      }
+      const trackedDelete = path.match(/^\/api\/tracked\/([\w-]+)$/);
+      if (trackedDelete && request.method === 'DELETE') {
+        await env.DB
+          .prepare('DELETE FROM tracked_positions WHERE id = ?')
+          .bind(trackedDelete[1])
+          .run();
+        return json({ ok: true });
+      }
+      if (path === '/api/tracked/report' && request.method === 'POST') {
+        const sent = await reportTrackedPositions(env.DB, env, {
+          force: url.searchParams.get('force') === '1',
+        });
+        return json({ ok: true, sent });
       }
 
       // Nabız dedektörü: son alarmlar + manuel tetikleme
@@ -193,6 +271,14 @@ export default {
           levelInfo = await checkLevelAlerts(env.DB, env);
         } catch (e) {
           console.error('Seviye alarmı hatası:', e);
+        }
+        // Manuel pozisyon takibi: 15 dakikada bir rapor (5 dk'lık cron'un her 3. vuruşu)
+        try {
+          if (new Date().getUTCMinutes() % 15 === 0 && (await getActiveTracked(env.DB)).length) {
+            await reportTrackedPositions(env.DB, env);
+          }
+        } catch (e) {
+          console.error('Takip raporu hatası:', e);
         }
         console.log(
           `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}; seviye: ${levelInfo}`

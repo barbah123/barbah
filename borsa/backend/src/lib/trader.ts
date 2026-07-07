@@ -63,6 +63,14 @@ const DATA_FRESH_SECONDS = 15 * 60;
 // Giriş için gün tavanı: gün +%8'i geçmiş hisse "erken" değildir — tepeden alma
 // (6 Tem seansı: +%17 AXTI, +%14 CRDO, +%12 BE tepeden alınıp hepsi ekside sallandı)
 const MAX_ENTRY_DAY_PCT = 8;
+// Günlük zarar freni: gün içi gerçekleşen zarar özkaynağın bu yüzdesini aşarsa
+// o gün yeni pozisyon açılmaz (çıkış/stop yönetimi çalışmaya devam eder).
+// 6 Tem dersi: bot her stop sonrası slotu hemen doldurup kanamayı büyüttü.
+const DAILY_LOSS_LIMIT_PCT = 1.5;
+// ABD öğle yatayı (18:30-21:00 TSİ = 15:30-18:00 UTC): momentum güvenilmez,
+// bu saatlerde yalnızca hacim teyitli nabız girişine izin verilir.
+const CHOP_START_MIN = 15 * 60 + 30;
+const CHOP_END_MIN = 18 * 60;
 
 export async function getBotConfig(db: D1Database, portfolioId: string): Promise<BotConfig> {
   const existing = await db
@@ -127,6 +135,29 @@ function nowMinutesUtc(): number {
 function isWeekday(): boolean {
   const day = new Date().getUTCDay();
   return day >= 1 && day <= 5;
+}
+
+/** Günlük zarar freni kontrolü: bugün gerçekleşen K/Z limiti aştı mı? */
+async function dailyLossBrake(
+  db: D1Database,
+  portfolioId: string
+): Promise<{ tripped: boolean; realized: number; limit: number }> {
+  const [row, portfolio] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(pnl), 0) AS pnl FROM bot_trades
+         WHERE portfolio_id = ? AND status = 'closed' AND closed_at >= date('now')`
+      )
+      .bind(portfolioId)
+      .first<{ pnl: number }>(),
+    db
+      .prepare('SELECT starting_cash FROM portfolios WHERE id = ?')
+      .bind(portfolioId)
+      .first<{ starting_cash: number }>(),
+  ]);
+  const realized = row?.pnl ?? 0;
+  const limit = ((portfolio?.starting_cash ?? 100000) * DAILY_LOSS_LIMIT_PCT) / 100;
+  return { tripped: realized <= -limit, realized, limit };
 }
 
 /** Kapanan işlemlerden performans istatistikleri (işlem incelemesi katmanı). */
@@ -250,6 +281,22 @@ async function findEntries(
 ): Promise<CycleAction[]> {
   const slots = config.max_positions - openTrades.length;
   if (slots <= 0) return [];
+
+  // Günlük zarar freni
+  const brake = await dailyLossBrake(db, portfolioId);
+  if (brake.tripped) {
+    return [
+      {
+        text: `🛑 Günlük zarar freni: bugün gerçekleşen K/Z -$${Math.abs(brake.realized).toFixed(0)} (limit -$${brake.limit.toFixed(0)}) — bugün yeni giriş yok`,
+      },
+    ];
+  }
+
+  // Öğle yatayı: bu saatlerde düzenli döngü girişleri kapalı (nabız girişleri açık)
+  const nowMin = nowMinutesUtc();
+  if (nowMin >= CHOP_START_MIN && nowMin < CHOP_END_MIN) {
+    return [];
+  }
 
   const portfolio = await db
     .prepare('SELECT cash FROM portfolios WHERE id = ?')
@@ -450,6 +497,8 @@ export async function enterFromPulseAlerts(
   let entered = 0;
   for (const config of configs) {
     const portfolioId = config.portfolio_id;
+    const brake = await dailyLossBrake(db, portfolioId);
+    if (brake.tripped) continue; // günlük zarar freni: nabız girişi de yok
     const { results: openTrades } = await db
       .prepare("SELECT symbol FROM bot_trades WHERE portfolio_id = ? AND status = 'open'")
       .bind(portfolioId)

@@ -251,9 +251,11 @@ function formatScanMessage(candidates: ScanCandidate[], scanned: number, lastBar
     const dir = c.direction === 'long' ? '🟢 LONG' : '🔴 SHORT';
     const vol =
       c.relativeVolume != null ? ` | hacim ${c.relativeVolume.toFixed(1)}x` : '';
+    // Kapanışa doğru momentumu ters dönmüş "günün kazananı" = geç kalınmış hareket
+    const cooling = c.direction === 'long' && c.momentumPercent < -1 ? ' 🔻soğuyor' : '';
     return (
       `${i + 1}. <b>${c.symbol}</b> ${dir} — $${c.price.toFixed(2)}\n` +
-      `   gün ${pct(c.dayChangePercent)} | gap ${pct(c.gapPercent)} | 30dk ${pct(c.momentumPercent)}${vol}`
+      `   gün ${pct(c.dayChangePercent)} | gap ${pct(c.gapPercent)} | 30dk ${pct(c.momentumPercent)}${vol}${cooling}`
     );
   });
   // Veri zaman damgası (TSİ) — kullanıcı fiyatların hangi ana ait olduğunu görsün

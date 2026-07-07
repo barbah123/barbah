@@ -22,6 +22,17 @@ const DATA_FRESH_SECONDS = 15 * 60;
 const REALERT_COOLDOWN_MINUTES = 120; // aynı sembole 2 saat içinde ikinci alarm yok
 const MAX_CONFIRM_PER_CYCLE = 6; // hacim teyidi (sembol başına 1 istek) tavanı
 const HOT_LOOKBACK_DAYS = 3;
+// ABD seansı (UTC): alarmlar yalnızca seans içinde üretilir
+// (6 Tem: kapanıştan sonra 23:05 TSİ'de işlem yapılamayan AAMI alarmı geldi)
+const SESSION_OPEN_MIN = 13 * 60 + 30;
+const SESSION_CLOSE_MIN = 20 * 60;
+
+function inSession(): boolean {
+  const d = new Date();
+  const day = d.getUTCDay();
+  const minutes = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return day >= 1 && day <= 5 && minutes >= SESSION_OPEN_MIN && minutes < SESSION_CLOSE_MIN;
+}
 
 export interface PulseAlert {
   id: string;
@@ -138,6 +149,9 @@ export async function runPulse(
   };
   if (!spark.size) return { ...empty, skippedReason: 'Veri alınamadı' };
 
+  if (!inSession() && !options.force) {
+    return { ...empty, skippedReason: 'Seans dışı' };
+  }
   const lastBarTime = Math.max(0, ...[...spark.values()].map((s) => s.lastTime));
   if (Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS && !options.force) {
     return { ...empty, skippedReason: 'Veri bayat (piyasa kapalı olabilir)' };

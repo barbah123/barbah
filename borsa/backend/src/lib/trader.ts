@@ -258,6 +258,21 @@ export async function manageOpenTrades(
         .run();
     }
 
+    // Başabaş koruması: hedefe yarı yol alındıysa stop en az giriş seviyesine çekilir.
+    // (7 Tem dersi: IRON +$472'ye gitti, stop girişte kaldı, kâr +$186'ya eridi.)
+    const halfwayToTarget =
+      trade.entry_price + (trade.take_profit - trade.entry_price) / 2;
+    if (price >= halfwayToTarget && stopLoss < trade.entry_price) {
+      stopLoss = trade.entry_price;
+      await db
+        .prepare('UPDATE bot_trades SET stop_loss = ? WHERE id = ?')
+        .bind(stopLoss, trade.id)
+        .run();
+      actions.push({
+        text: `🛡️ ${trade.symbol} hedefe yarı yol alındı — stop başabaşa çekildi ($${stopLoss.toFixed(2)})`,
+      });
+    }
+
     let exitReason: string | null = null;
     if (options.flattenAll) exitReason = 'gün sonu kapanışı';
     else if (price <= stopLoss) exitReason = `stop-loss ($${stopLoss.toFixed(2)})`;
@@ -335,11 +350,13 @@ async function findEntries(
   // entryRank taze momentumu ödüllendirir, %4 üstü her gün-puanını cezalandırır.
   const entryRank = (c: ScanCandidate) =>
     c.momentumPercent * 2 - Math.max(0, c.dayChangePercent - 4);
+  // Momentum tabanı %1.5: %0.5'lik "cansız" sinyaller (7 Tem: WMT %0.73, UBER
+  // %1.03 → ikisi de zarar) gürültüden ayrışmıyor; gerçek hareket isteriz.
   const shortlist = candidates
     .filter(
       (c) =>
         c.direction === 'long' &&
-        c.momentumPercent >= 0.5 &&
+        c.momentumPercent >= 1.5 &&
         c.momentumPercent <= 4 &&
         c.dayChangePercent >= 1.5 &&
         c.dayChangePercent <= MAX_ENTRY_DAY_PCT &&
@@ -537,6 +554,13 @@ export async function enterFromPulseAlerts(
 
       const intel = await getIntel(alert.symbol).catch(() => null);
       if (intel?.blockEntry) continue;
+      // Katalizör şartı: haberli isimler kazandı (BCRX/RBC), habersizler öğütüldü
+      // (BEAM -$411). Katalizörsüz alarm bilgilendirme olarak kalır, işleme dönmez.
+      const hasCatalyst =
+        intel != null &&
+        intel.news.length > 0 &&
+        (intel.newsScore == null || intel.newsScore >= 0);
+      if (!hasCatalyst) continue;
 
       const res = await executeEntry(
         db,

@@ -8,6 +8,7 @@
 
 import { fetchSpark, getDynamicSymbols, SCAN_UNIVERSE, type SparkSeries } from './scanner';
 import { getCandles } from './data';
+import { getIntel } from './intel';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
 
 // Tetik eşikleri
@@ -189,11 +190,27 @@ export async function runPulse(
       if (vol.avgDollarVol < MIN_AVG_DOLLAR_VOL) continue;
     }
 
+    // Katalizör kontrolü: haber varsa alarm "işlenebilir", yoksa "sadece izle"
+    // (kaynak çökerse etiketsiz devam — alarm engellenmez)
+    let catalystText: string | null = null;
+    try {
+      const intel = await getIntel(t.symbol);
+      if (intel.news.length > 0 && (intel.newsScore == null || intel.newsScore >= 0)) {
+        catalystText = `📰 Katalizör: ${intel.news[0].title.slice(0, 80)}`;
+      } else if (intel.news.length === 0) {
+        catalystText = '📰 Katalizör yok — bot girmez, sadece izleme';
+      }
+    } catch {
+      // istihbarat alınamadı: etiketsiz devam
+    }
+
     const id = crypto.randomUUID();
-    const note =
-      vol && vol.avgDollarVol < 2_000_000
-        ? 'düşük likidite — geniş spread riskine dikkat'
-        : null;
+    const noteParts: string[] = [];
+    if (vol && vol.avgDollarVol < 2_000_000) {
+      noteParts.push('düşük likidite — geniş spread riskine dikkat');
+    }
+    if (catalystText) noteParts.push(catalystText);
+    const note = noteParts.length ? noteParts.join(' | ') : null;
     await db
       .prepare(
         `INSERT INTO pulse_alerts (id, symbol, price, change_15m, day_change, rel_volume, note)

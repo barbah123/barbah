@@ -1,57 +1,79 @@
-# Barbah Co-op (Çalışma Adı)
+# BADALAND 🦊🐰
 
-**It Takes Two** tarzı, iki kişilik online co-op mobil oyun. Karakter
-kontrolü ve hareket hissi **PK XD** tarzında: sanal joystick, zıplama
-(+ çift zıplama), parmakla sürüklenerek dönen takip kamerası.
+**It Takes Two** tarzı, iki kişilik online co-op mobil oyun. Karakterler
+sevimli hayvanlar (tilki, tavşan, baykuş, penguen...); hareket ve kontroller
+**PK XD** tarzında: sanal joystick, zıplama, sürüklenerek dönen kamera ve
+PK XD tarzı **kıyafet/stil marketi**.
 
-Bu klasör bir **Unity (C#)** projesidir — deponun geri kalanındaki
-`mobile/` ve `backend/` uygulamalarından tamamen bağımsızdır.
+Bu klasör iki parçadan oluşur:
 
-## Şu An Neler Var (v0.1 — Temel)
+- `game/` (bu klasör) → **Unity (C#)** oyun projesi
+- `game/backend/` → **Cloudflare Workers** API (e-posta doğrulamalı hesap,
+  market, bölüm ilerlemesi)
 
-- **PK XD tarzı kontrol:** sol altta joystick, sağ altta zıplama butonu,
-  ekranın boş bir yerinden sürükleyince dönen kamera. Editörde test için
-  WASD + Space + sağ fare tuşu da çalışır.
-- **Online co-op (2 oyuncu):** "Oda Kur" → 6 haneli kod üretilir →
-  arkadaş kodu girip "Katıl" der. Unity Relay kullanıldığı için modem/port
-  ayarı gerekmez, iki telefon internet üzerinden buluşur.
-- **Örnek co-op bulmaca:** iki basma plakası **aynı anda** basılıysa kapı
-  açılır — tek kişi açamaz, It Takes Two ruhu.
-- **Tek tıkla sahne kurulumu:** Unity menüsünden `Barbah > Oyun Sahnesini Kur`
-  dersen oyuncu prefab'ı, test dünyası, ağ yöneticisi ve tüm UI otomatik kurulur.
+## Özellikler (v0.2)
 
-## Kurulum
+- **Hesap sistemi:** e-posta + parola ile kayıt, **6 haneli e-posta doğrulama
+  kodu**, giriş, misafir modu. Oturum 30 gün hatırlanır.
+- **Ana menü akışı:** Giriş/Kayıt → Ana Menü → Bölümler → Birlikte Oyna.
+- **12 hayvan karakter** (referans görsellerden): Tilki ve Tavşan ücretsiz,
+  diğerleri (Baykuş, Penguen, Domuzcuk, Sincap, Kirpi, Kurt, Kartal, Flamingo,
+  Aksolotl, Geyik) markette altınla satılır. Gerçek 3D modeller gelene kadar
+  her hayvanın kulak/kuyruk/gaga/renk kombinasyonlu yer tutucu gövdesi var.
+- **Market (PK XD tarzı):** karakterler + şapka/gözlük/sırt aksesuarları.
+  Satın al, tak/çıkar — hepsi hesaba kaydedilir ve **oyunda iki oyuncu da
+  birbirinin kıyafetini görür** (ağ üzerinden senkronlanır).
+- **Online co-op (2 oyuncu):** Unity Relay ile oda kodu üzerinden eşleşme.
+- **Bölüm 1 — Kapı Bulmacası:** iki basma plakası aynı anda basılınca kapı
+  açılır; iki oyuncu **birlikte** hedef alanına ulaşınca bölüm tamamlanır,
+  altın ödülü hesaba işlenir (ilk bitirme bonuslu). Bölüm 2-3 "yakında".
+- **PK XD tarzı kontroller:** joystick + zıplama (çift zıplama) + dokunmatik
+  kamera. Editörde WASD + Space + sağ fare ile test edilir.
 
-1. **Unity Hub** ile **Unity 6 LTS (6000.0.x)** sürümünü kur
-   (Android Build Support modülüyle birlikte).
-2. Unity Hub → **Add** → bu `game/` klasörünü seç ve aç.
-   İlk açılışta paketler (Netcode for GameObjects, Relay, Authentication)
-   otomatik iner.
-3. Üst menüden **Barbah > Oyun Sahnesini Kur** çalıştır.
-   `Assets/Game/Scenes/Main.unity` sahnesi oluşur ve açılır.
-4. **Play**'e bas — menü gelir, editörde klavyeyle oynayabilirsin.
+## Kurulum — Unity
+
+1. **Unity Hub** ile **Unity 6 LTS (6000.0.x)** kur (Android Build Support ile).
+2. Unity Hub → **Add** → bu `game/` klasörünü aç (paketler otomatik iner).
+3. Menüden **Badaland > Oyun Sahnesini Kur** çalıştır → `Assets/Game/Scenes/Main.unity` oluşur.
+4. **Play** — giriş ekranı gelir. Backend deploy edilmediyse **Misafir Olarak
+   Oyna** ile menüye geçebilirsin.
+
+> Arayüz panelleri çalışma zamanında kodla kurulur (`MenuFlow` + `UiFactory`);
+> menüde değişiklik yapınca sahneyi yeniden kurmak gerekmez.
+
+## Kurulum — Backend (hesap + market)
+
+```bash
+cd game/backend
+npm install
+npx wrangler d1 create badaland-db        # cikan database_id'yi wrangler.toml'a yaz
+npx wrangler d1 migrations apply badaland-db --remote
+npx wrangler secret put JWT_SECRET        # uzun rastgele bir metin gir
+npx wrangler secret put RESEND_API_KEY    # e-posta icin (resend.com) — opsiyonel
+npx wrangler deploy                       # cikan URL'i not al
+```
+
+Sonra Unity'de `Assets/Scripts/Runtime/Api/ApiClient.cs` içindeki
+`BaseUrl` değerini kendi `https://badaland-api.....workers.dev` adresinle değiştir.
+
+> **E-posta gönderimi:** `RESEND_API_KEY` ayarlıysa doğrulama kodları gerçek
+> e-posta ile gider. Ayarlı değilse kod API cevabında `dev_code` olarak döner
+> ve oyun bunu otomatik doldurur — **sadece geliştirme için**; yayına çıkmadan
+> önce mutlaka anahtarı ayarla.
 
 ## Online Oyun İçin (bir kere yapılır)
 
-Relay servisi Unity'nin ücretsiz eşleşme altyapısıdır (aylık kotası hobi
-projeler için fazlasıyla yeter). Etkinleştirmek için:
-
-1. [cloud.unity.com](https://cloud.unity.com) üzerinden ücretsiz hesap aç,
-   bir proje oluştur.
-2. Unity'de **Edit > Project Settings > Services** → hesabına giriş yap ve
-   projeyi bağla.
-3. Unity Cloud panelinden **Relay** servisini etkinleştir
-   (Authentication anonim giriş otomatik çalışır).
+1. [cloud.unity.com](https://cloud.unity.com) → ücretsiz hesap + proje.
+2. Unity'de **Edit > Project Settings > Services** → projeyi bağla.
+3. Unity Cloud panelinden **Relay** servisini etkinleştir.
 
 ## İki Telefonda Test
 
-1. **File > Build Settings** → Android → Switch Platform → Build.
-2. APK'yı iki telefona kur.
-3. Birinci telefon: **ODA KUR** → ekranda çıkan kodu arkadaşına gönder.
-4. İkinci telefon: kodu yaz → **KATIL**. İki karakter aynı dünyada buluşur.
-
-Tek cihazda hızlı test: editörde Play (oda kur) + telefona kurulu
-uygulamadan katıl da olur.
+1. **File > Build Settings** → Android → Switch Platform → Build → APK'yı iki telefona kur.
+2. İkisi de kayıt olup giriş yapsın (veya misafir).
+3. Birinci: **Bölümler → Bölüm 1 → ODA KUR** → kodu arkadaşına gönder.
+4. İkinci: kodu girip **KATIL** → aynı dünyada buluşun, plakalara birlikte
+   basın, kapının ardındaki altın alana **birlikte** ulaşın!
 
 ## Klasör Yapısı
 
@@ -59,21 +81,28 @@ uygulamadan katıl da olur.
 game/
 ├── Assets/Scripts/
 │   ├── Runtime/
-│   │   ├── Player/     → PlayerController (hareket/zıplama), ClientNetworkTransform
-│   │   ├── Camera/     → OrbitCamera (PK XD tarzı takip kamerası)
-│   │   ├── Input/      → VirtualJoystick, JumpButton, MobileControls
-│   │   ├── Net/        → ConnectionManager (Relay ile oda kur/katıl)
-│   │   ├── UI/         → MainMenuUI (menü + HUD akışı)
-│   │   └── Gameplay/   → CoopPressurePlate, CoopDoor (örnek co-op bulmaca)
-│   └── Editor/         → GameSceneBuilder (tek tıkla sahne kurulumu)
-├── Packages/manifest.json
-└── ProjectSettings/
+│   │   ├── Api/         → ApiClient, Models, PlayerSession (hesap/oturum)
+│   │   ├── Characters/  → CharacterCatalog, CosmeticCatalog, CharacterAppearance
+│   │   ├── Player/      → PlayerController, PlayerAvatar, ClientNetworkTransform
+│   │   ├── Camera/      → OrbitCamera
+│   │   ├── Input/       → VirtualJoystick, JumpButton, MobileControls
+│   │   ├── Net/         → ConnectionManager (Relay oda kur/katıl)
+│   │   ├── UI/          → MenuFlow, AuthUI, HomeUI, LevelsUI, PlayUI,
+│   │   │                  MarketUI, CharacterSelectUI, HudUI, UiFactory
+│   │   └── Gameplay/    → CoopPressurePlate, CoopDoor, LevelGoal, LevelEvents
+│   └── Editor/          → GameSceneBuilder (Badaland > Oyun Sahnesini Kur)
+└── backend/             → Cloudflare Workers API (auth + market + progress)
+    ├── migrations/      → D1 şeması
+    └── src/routes/      → auth, me, market, progress
 ```
 
-## Yol Haritası (detaylar geldikçe)
+> Karakter/eşya ID'leri Unity (`CharacterCatalog`, `CosmeticCatalog`) ile
+> backend (`src/catalog.ts`) arasında birebir aynı tutulmalıdır.
 
-- [ ] Oyun teması, hikâye ve bölüm tasarımları
-- [ ] Gerçek karakter modelleri ve animasyonlar (koşma/zıplama/emote)
-- [ ] Daha fazla co-op mekaniği (birbirini fırlatma, kaldıraç, taşıma...)
-- [ ] Bölüm ilerlemesi ve kayıt sistemi
+## Yol Haritası
+
+- [ ] Bölüm 2 ve 3 tasarımları (yeni co-op mekanikleri: fırlatma, taşıma, kaldıraç)
+- [ ] Gerçek 3D hayvan modelleri ve animasyonlar (It Takes Two kalite hedefi)
+- [ ] Daha fazla kıyafet + emote sistemi
 - [ ] Ses ve müzik
+- [ ] Arkadaş listesi / davet sistemi

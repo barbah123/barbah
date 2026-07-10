@@ -33,11 +33,7 @@ namespace Barbah.Coop
 
         public override void OnNetworkSpawn()
         {
-            // Her oyuncuya kimligine gore farkli bir renk ver.
-            var rend = GetComponentInChildren<Renderer>();
-            if (rend != null)
-                rend.material.color = Color.HSVToRGB((OwnerClientId * 0.37f) % 1f, 0.6f, 1f);
-
+            // Gorunum PlayerAvatar tarafindan kurulur (secili hayvan + esyalar).
             if (!IsOwner) return;
 
             orbitCamera = FindFirstObjectByType<OrbitCamera>();

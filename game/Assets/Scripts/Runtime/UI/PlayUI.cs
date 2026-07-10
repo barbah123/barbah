@@ -36,6 +36,9 @@ namespace Barbah.Coop
             joinButton = UiFactory.Button(panel.transform, "KATIL", center, new Vector2(0f, -155f),
                 new Vector2(620f, 110f), DoJoin, UiTheme.Accent, 44);
 
+            UiFactory.Button(panel.transform, "TEK BAŞINA DENE (offline)", center, new Vector2(0f, -280f),
+                new Vector2(620f, 80f), DoOffline, UiTheme.Disabled, 28, UiTheme.TextDark);
+
             status = UiFactory.Label(panel.transform, "", new Vector2(0.5f, 0f), new Vector2(0f, 190f),
                 new Vector2(1400f, 100f), 30, FontStyle.Normal, UiTheme.TextMuted);
 
@@ -43,6 +46,19 @@ namespace Barbah.Coop
                 new Vector2(400f, 80f), () => MenuFlow.Instance.ShowLevels(), UiTheme.AccentSoft, 32, UiTheme.TextDark);
 
             return panel;
+        }
+
+        private void DoOffline()
+        {
+            try
+            {
+                ConnectionManager.Instance.StartOfflineHost();
+                MenuFlow.Instance.Hud.SetRoomCode("");
+            }
+            catch (Exception e)
+            {
+                SetStatus("Başlatılamadı: " + e.Message);
+            }
         }
 
         private void Start()

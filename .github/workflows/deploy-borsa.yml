@@ -80,6 +80,21 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy
 
+      - name: Cron schedule inspection + force re-register
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "== Kayitli cron takvimleri (CF API) =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/borsa-paper-api/schedules"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | head -c 1500
+          echo
+          echo "== Tetikleyicileri zorla yeniden kaydet =="
+          npx wrangler triggers deploy || true
+          echo "== Tekrar kontrol =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/borsa-paper-api/schedules"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | head -c 1500
+          echo
+
       - name: Diagnostics (safe counts only)
         working-directory: borsa/backend
         env:

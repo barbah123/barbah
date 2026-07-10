@@ -43,23 +43,31 @@ Bu klasör iki parçadan oluşur:
 
 ## Kurulum — Backend (hesap + market)
 
+**Otomatik (önerilen):** Bu depo main'e merge edilince GitHub Actions
+(`.github/workflows/deploy-badaland.yml`) backend'i diğer projelerle aynı
+kalıpla kendisi deploy eder: D1 veritabanını oluşturur, migration'ları
+uygular, `JWT_SECRET`'ı yoksa üretir ve worker'ı
+**`https://badaland-api.barbah.workers.dev`** adresine çıkarır.
+`ApiClient.cs` içindeki `BaseUrl` zaten bu adrese ayarlıdır — ekstra bir şey
+yapman gerekmez. (Merge beklemeden Actions sekmesinden "Deploy Badaland to
+Cloudflare" → **Run workflow** ile elle de tetikleyebilirsin.)
+
+Elle deploy istersen:
+
 ```bash
 cd game/backend
 npm install
 npx wrangler d1 create badaland-db        # cikan database_id'yi wrangler.toml'a yaz
 npx wrangler d1 migrations apply badaland-db --remote
 npx wrangler secret put JWT_SECRET        # uzun rastgele bir metin gir
-npx wrangler secret put RESEND_API_KEY    # e-posta icin (resend.com) — opsiyonel
-npx wrangler deploy                       # cikan URL'i not al
+npx wrangler deploy
 ```
 
-Sonra Unity'de `Assets/Scripts/Runtime/Api/ApiClient.cs` içindeki
-`BaseUrl` değerini kendi `https://badaland-api.....workers.dev` adresinle değiştir.
-
-> **E-posta gönderimi:** `RESEND_API_KEY` ayarlıysa doğrulama kodları gerçek
-> e-posta ile gider. Ayarlı değilse kod API cevabında `dev_code` olarak döner
-> ve oyun bunu otomatik doldurur — **sadece geliştirme için**; yayına çıkmadan
-> önce mutlaka anahtarı ayarla.
+> **E-posta gönderimi:** Repo secret'larına `RESEND_API_KEY` eklersen
+> (resend.com'dan ücretsiz anahtar) workflow bunu worker'a aktarır ve
+> doğrulama kodları gerçek e-posta ile gider. Ayarlı değilse kod API
+> cevabında `dev_code` olarak döner ve oyun bunu otomatik doldurur —
+> **sadece geliştirme için**; yayına çıkmadan önce mutlaka anahtarı ekle.
 
 ## Online Oyun İçin (bir kere yapılır)
 

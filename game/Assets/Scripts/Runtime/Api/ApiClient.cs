@@ -28,8 +28,9 @@ namespace Barbah.Coop
     /// <summary>Badaland API istemcisi (game/backend'deki Cloudflare Worker).</summary>
     public static class ApiClient
     {
-        // TODO: Backend'i deploy ettikten sonra kendi workers.dev adresinle degistir.
-        public const string BaseUrl = "https://badaland-api.example.workers.dev";
+        // GitHub Actions (deploy-badaland.yml) main'e merge edilince backend'i
+        // otomatik olarak bu adrese deploy eder (diger projelerle ayni kalip).
+        public const string BaseUrl = "https://badaland-api.barbah.workers.dev";
 
         private const string TokenKey = "badaland_token";
 

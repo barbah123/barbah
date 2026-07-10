@@ -1,0 +1,105 @@
+name: Deploy Badaland to Cloudflare
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'game/backend/**'
+      - '.github/workflows/deploy-badaland.yml'
+  workflow_dispatch:
+
+jobs:
+  setup-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: game/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install backend deps
+        run: npm install
+
+      - name: Create D1 Database (idempotent)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e -o pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "ERROR: CLOUDFLARE_API_TOKEN secret bos/tanimsiz."
+            exit 1
+          fi
+
+          DB_LIST=$(npx wrangler d1 list --json 2>&1)
+          STATUS=$?
+          echo "$DB_LIST"
+          if [ $STATUS -ne 0 ]; then
+            echo "ERROR: 'wrangler d1 list' basarisiz (exit $STATUS)."
+            exit 1
+          fi
+
+          DB_ID=$(echo "$DB_LIST" | jq -r '.[] | select(.name=="badaland-db") | .uuid' 2>/dev/null)
+          if [ -n "$DB_ID" ]; then
+            echo "Database already exists, DB_ID: $DB_ID"
+          else
+            echo "Creating D1 database..."
+            CREATE_OUTPUT=$(npx wrangler d1 create badaland-db 2>&1)
+            echo "$CREATE_OUTPUT"
+            DB_ID=$(echo "$CREATE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+            echo "Created DB_ID: $DB_ID"
+          fi
+          if [ -z "$DB_ID" ]; then
+            echo "ERROR: Could not determine database ID"
+            exit 1
+          fi
+          sed -i "s/database_id = \"placeholder\"/database_id = \"$DB_ID\"/" wrangler.toml
+          echo "Updated wrangler.toml with database_id: $DB_ID"
+          cat wrangler.toml
+
+      - name: Run D1 Migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 migrations apply badaland-db --remote
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Ensure runtime secrets (generate once if missing)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          set -e -o pipefail
+          # Cloudflare secret'lari deploy'lar arasi kalici oldugundan yalnizca
+          # bir kez (yoksa) uretilir. Uretilen degerler loglara ya da repoya yazilmaz.
+          EXISTING=$(npx wrangler secret list 2>/dev/null || echo '[]')
+          echo "Mevcut secret adlari:"; echo "$EXISTING" | jq -r '.[].name' 2>/dev/null || true
+
+          if ! echo "$EXISTING" | jq -e '.[] | select(.name=="JWT_SECRET")' >/dev/null 2>&1; then
+            echo "JWT_SECRET ekleniyor (yeni)"
+            openssl rand -hex 32 | npx wrangler secret put JWT_SECRET
+          else
+            echo "JWT_SECRET zaten var, atlandi"
+          fi
+
+          # RESEND_API_KEY repo secret'i tanimliysa worker'a aktarilir; degilse
+          # dogrulama kodlari API cevabinda dev_code olarak doner (gelistirme modu).
+          if [ -n "$RESEND_API_KEY_VALUE" ]; then
+            echo "RESEND_API_KEY worker'a aktariliyor"
+            echo "$RESEND_API_KEY_VALUE" | npx wrangler secret put RESEND_API_KEY
+          else
+            echo "RESEND_API_KEY repo secret'i tanimli degil — e-posta gonderimi kapali (dev_code modu)"
+          fi
+
+      - name: Done
+        run: echo "Deploy tamam. API https://badaland-api.barbah.workers.dev adresinde."

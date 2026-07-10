@@ -71,6 +71,10 @@ const DAILY_LOSS_LIMIT_PCT = 1.5;
 // bu saatlerde yalnızca hacim teyitli nabız girişine izin verilir.
 const CHOP_START_MIN = 15 * 60 + 30;
 const CHOP_END_MIN = 18 * 60;
+// Zaman stopu: girişten bu kadar saat sonra pozisyon hâlâ kârda değilse kapatılır.
+// (9 Tem: AFRM 5,5 saat ekside süründü, stopa değmeden -$319'a kanadı;
+// çalışmayan pozisyon sermayeyi çalışacak fırsattan alıkoyar.)
+const TIME_STOP_HOURS = 3;
 
 export async function getBotConfig(db: D1Database, portfolioId: string): Promise<BotConfig> {
   const existing = await db
@@ -277,6 +281,14 @@ export async function manageOpenTrades(
     if (options.flattenAll) exitReason = 'gün sonu kapanışı';
     else if (price <= stopLoss) exitReason = `stop-loss ($${stopLoss.toFixed(2)})`;
     else if (price >= trade.take_profit) exitReason = `hedef ($${trade.take_profit.toFixed(2)})`;
+    else if (price <= trade.entry_price) {
+      // Zaman stopu: uzun süredir kârda olmayan pozisyonu bırak
+      const openedMs = new Date(trade.opened_at.replace(' ', 'T') + 'Z').getTime();
+      const ageHours = (Date.now() - openedMs) / 3_600_000;
+      if (Number.isFinite(ageHours) && ageHours >= TIME_STOP_HOURS) {
+        exitReason = `zaman stopu (${TIME_STOP_HOURS} saatte kâra geçemedi)`;
+      }
+    }
 
     if (exitReason) {
       const action = await closeTrade(db, { ...trade, stop_loss: stopLoss }, exitReason);

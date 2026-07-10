@@ -1,0 +1,130 @@
+name: Deploy Borsa to Cloudflare
+
+on:
+  push:
+    branches: [main, master, claude/stock-exchange-trading-app-jp7rhl]
+    paths:
+      - 'borsa/backend/**'
+      - '.github/workflows/deploy-borsa.yml'
+  workflow_dispatch:
+
+jobs:
+  setup-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install backend deps
+        working-directory: borsa/backend
+        run: npm install
+
+      - name: Create D1 Database (idempotent)
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # errexit kapalı: çıkış kodlarını elle kontrol ediyoruz ki gerçek hata loglara yazılsın
+          set +e -o pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "ERROR: CLOUDFLARE_API_TOKEN secret bos/tanimsiz. Repo Settings -> Secrets'ten ekleyin."
+            exit 1
+          fi
+
+          echo "Checking for existing D1 database..."
+          DB_LIST=$(npx wrangler d1 list --json 2>&1)
+          STATUS=$?
+          echo "$DB_LIST"
+          if [ $STATUS -ne 0 ]; then
+            echo "ERROR: 'wrangler d1 list' basarisiz (exit $STATUS) - yukaridaki ciktiya bakin (muhtemelen token izinleri ya da account_id)."
+            exit 1
+          fi
+
+          DB_ID=$(echo "$DB_LIST" | jq -r '.[] | select(.name=="borsa-paper-db") | .uuid' 2>/dev/null)
+          if [ -n "$DB_ID" ]; then
+            echo "Database already exists, DB_ID: $DB_ID"
+          else
+            echo "Creating D1 database..."
+            CREATE_OUTPUT=$(npx wrangler d1 create borsa-paper-db 2>&1)
+            echo "$CREATE_OUTPUT"
+            DB_ID=$(echo "$CREATE_OUTPUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+            echo "Created DB_ID: $DB_ID"
+          fi
+          if [ -z "$DB_ID" ]; then
+            echo "ERROR: Could not determine database ID"
+            exit 1
+          fi
+          sed -i "s/database_id = \"placeholder\"/database_id = \"$DB_ID\"/" wrangler.toml
+          echo "Updated wrangler.toml with database_id: $DB_ID"
+          cat wrangler.toml
+
+      - name: Run D1 Migrations
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Idempotent: wrangler uygulanan migrasyonlari d1_migrations tablosunda izler,
+          # yalnizca yenileri calistirir. Yeni migrations/000N_*.sql eklemek yeterli.
+          npx wrangler d1 migrations apply borsa-paper-db --remote
+
+      - name: Deploy Worker
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Cron schedule inspection + force re-register
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "== Kayitli cron takvimleri (CF API) =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/borsa-paper-api/schedules"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | head -c 1500
+          echo
+          echo "== Tetikleyicileri zorla yeniden kaydet =="
+          npx wrangler triggers deploy || true
+          echo "== Tekrar kontrol =="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/borsa-paper-api/schedules"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | head -c 1500
+          echo
+
+      - name: Diagnostics (safe counts only)
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Cron kanitlari: bugunku tarama/nabiz izleri + bot durumu (gizli veri yazdirilmaz)
+          npx wrangler d1 execute borsa-paper-db --remote --json --command "
+            SELECT
+              (SELECT COUNT(*) FROM hot_symbols WHERE day = date('now')) AS hot_today,
+              (SELECT COUNT(*) FROM pulse_alerts WHERE created_at >= date('now')) AS pulse_today,
+              (SELECT COUNT(*) FROM bot_trades) AS bot_trades_total,
+              (SELECT COUNT(*) FROM bot_config WHERE enabled = 1) AS enabled_bots,
+              (SELECT COUNT(*) FROM tracked_positions WHERE status = 'active') AS tracked_active,
+              (SELECT MIN(cash) FROM portfolios) AS min_cash" || true
+
+      - name: Set Telegram Secrets (opsiyonel)
+        working-directory: borsa/backend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # Repo secret'larinda Telegram bilgileri tanimliysa Worker secret'i olarak aktar.
+          # Tanimli degilse deploy yine gecerli - bildirimler devre disi kalir.
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "$TELEGRAM_BOT_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN
+            echo "$TELEGRAM_CHAT_ID" | npx wrangler secret put TELEGRAM_CHAT_ID
+            echo "Telegram secrets set."
+          else
+            echo "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID repo secret'lari tanimsiz - bildirimsiz deploy."
+          fi

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Borsa — Paper Trading</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">📈 Borsa <span class="badge">PAPER</span></div>
+    <div class="account">
+      <div class="stat"><span class="label">Toplam Değer</span><span id="equity" class="value">—</span></div>
+      <div class="stat"><span class="label">Nakit</span><span id="cash" class="value">—</span></div>
+      <div class="stat"><span class="label">Toplam K/Z</span><span id="totalPnl" class="value">—</span></div>
+      <button id="resetBtn" class="btn ghost" title="Portföyü $100.000'a sıfırla">Sıfırla</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="search-box">
+        <input id="searchInput" type="text" placeholder="Sembol ara (örn. AAPL, Tesla)…" autocomplete="off" />
+        <div id="searchResults" class="search-results hidden"></div>
+      </div>
+      <ul id="watchlist" class="watchlist"></ul>
+    </aside>
+
+    <section class="center">
+      <div id="tvChart" class="chart"></div>
+
+      <div class="trade-panel">
+        <div class="trade-header">
+          <span id="tradeSymbol" class="trade-symbol">AAPL</span>
+          <span id="tradePrice" class="trade-price">—</span>
+          <span id="tradePosition" class="trade-position"></span>
+        </div>
+        <form id="tradeForm" class="trade-form">
+          <div class="seg" id="sideSeg">
+            <button type="button" class="seg-btn active" data-value="buy">AL</button>
+            <button type="button" class="seg-btn" data-value="sell">SAT</button>
+          </div>
+          <div class="seg" id="typeSeg">
+            <button type="button" class="seg-btn active" data-value="market">Piyasa</button>
+            <button type="button" class="seg-btn" data-value="limit">Limit</button>
+          </div>
+          <input id="qtyInput" type="number" min="1" step="1" value="1" placeholder="Adet" />
+          <input id="limitInput" type="number" min="0" step="0.01" placeholder="Limit fiyat" class="hidden" />
+          <span id="estCost" class="est-cost"></span>
+          <button type="submit" id="submitBtn" class="btn buy">AL</button>
+        </form>
+        <div id="tradeMsg" class="trade-msg"></div>
+      </div>
+    </section>
+  </main>
+
+  <section class="bottom">
+    <nav class="tabs">
+      <button class="tab active" data-tab="positions">Pozisyonlar</button>
+      <button class="tab" data-tab="orders">Emirler</button>
+      <button class="tab" data-tab="strategies">Stratejiler</button>
+      <button class="tab" data-tab="signals">Sinyaller</button>
+      <button class="tab" data-tab="bot">🤖 Bot</button>
+    </nav>
+    <div id="tab-positions" class="tab-panel"></div>
+    <div id="tab-orders" class="tab-panel hidden"></div>
+    <div id="tab-strategies" class="tab-panel hidden"></div>
+    <div id="tab-signals" class="tab-panel hidden"></div>
+    <div id="tab-bot" class="tab-panel hidden"></div>
+  </section>
+
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

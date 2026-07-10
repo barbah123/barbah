@@ -1,0 +1,370 @@
+// Borsa paper-trading API — katmanlar:
+//   veri katmanı        → lib/data.ts    (Yahoo Finance: fiyat, mum, arama)
+//   strateji katmanı    → lib/strategies.ts (SMA kesişimi, RSI)
+//   sinyal üretimi      → lib/signals.ts (strateji → sinyal kaydı)
+//   doğrulama           → lib/validation.ts (risk/bakiye/pozisyon kontrolleri)
+//   aracı yürütme       → lib/broker.ts  (paper-broker: emir dolumu, portföy)
+
+import { marketRoutes } from './routes/market';
+import { portfolioRoutes } from './routes/portfolio';
+import { orderRoutes } from './routes/orders';
+import { watchlistRoutes } from './routes/watchlist';
+import { strategyRoutes } from './routes/strategies';
+import { handleOptions, error, json } from './lib/http';
+import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
+import { runStrategies } from './lib/signals';
+import { runScan } from './lib/scanner';
+import { runAllTraders, enterFromPulseAlerts } from './lib/trader';
+import { runPulse, type PulseAlert } from './lib/pulse';
+import { checkLevelAlerts, type LevelAlert } from './lib/levels';
+import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
+import { getQuote } from './lib/data';
+import { botRoutes } from './routes/bot';
+
+export interface Env {
+  DB: D1Database;
+  ASSETS: Fetcher;
+  // Telegram bildirimleri (opsiyonel): wrangler secret put ile tanımlanır
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+}
+
+// Tarama cron'u (Telegram bildirimli): açılış sonrası, öğlen, kapanış öncesi
+const SCAN_CRON = '40 13,17,19 * * 1-5';
+// Otonom trader döngüsü: seans boyunca her 10 dakikada (analiz+risk+giriş/çıkış+rapor)
+const TRADER_CRON = '*/10 13-20 * * 1-5';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method === 'OPTIONS') return handleOptions();
+
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // API dışındaki her şey web arayüzü (public/)
+    if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
+
+    try {
+      // Portföyden bağımsız piyasa uçları
+      if (
+        path === '/api/quotes' ||
+        path === '/api/search' ||
+        path === '/api/candles' ||
+        path === '/api/intel'
+      ) {
+        return await marketRoutes(request, url);
+      }
+
+      // Sağlık: iş türü bazında kalp atışları
+      if (path === '/api/health' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT id, cron, at FROM cron_heartbeat')
+          .all<{ id: number; cron: string; at: string }>();
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan' };
+        const jobs: Record<string, unknown> = {};
+        let newestAge: number | null = null;
+        for (const r of results) {
+          const age = Math.round(
+            Date.now() / 1000 - new Date(r.at.replace(' ', 'T') + 'Z').getTime() / 1000
+          );
+          jobs[names[r.id] ?? String(r.id)] = { at: r.at, ageSeconds: age, source: r.cron };
+          if (newestAge == null || age < newestAge) newestAge = age;
+        }
+        return json({
+          ok: true,
+          jobs,
+          cronHealthy: newestAge != null && newestAge < 900,
+        });
+      }
+
+      // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.
+      // Tür bazlı asgari aralık korumaları çift çalışmayı ve kötüye kullanımı sınırlar.
+      if (path === '/api/cron/tick' && request.method === 'POST') {
+        const ran: string[] = [];
+        if (await runScheduledJob(env, 'cycle', 'tick')) ran.push('cycle');
+        if (await runScheduledJob(env, 'trader', 'tick')) ran.push('trader');
+        // Tarama yalnızca kendi pencerelerinde (13:40/17:40/19:40 UTC ± 5 dk)
+        const d = new Date();
+        const inScanWindow =
+          [13, 17, 19].includes(d.getUTCHours()) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
+        if (inScanWindow && (await runScheduledJob(env, 'scan', 'tick'))) ran.push('scan');
+        return json({ ok: true, ran });
+      }
+
+      // Tarama katmanı: günlük trade adaylarını bul (POST + notify → Telegram'a da gönder)
+      if (path === '/api/scan' && (request.method === 'GET' || request.method === 'POST')) {
+        const notify = request.method === 'POST' && url.searchParams.get('notify') !== '0';
+        const result = await runScan(env, { notify, db: env.DB });
+        return json(result);
+      }
+
+      // Seviye alarmları: listeleme, ekleme, silme
+      if (path === '/api/levels' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM level_alerts ORDER BY created_at DESC LIMIT 100')
+          .all<LevelAlert>();
+        return json({ levels: results });
+      }
+      if (path === '/api/levels' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const symbol = String(body.symbol ?? '').toUpperCase().trim();
+        const level = Number(body.level);
+        const direction = body.direction;
+        if (!symbol) return error('Sembol gerekli');
+        if (!Number.isFinite(level) || level <= 0) return error('Geçerli bir seviye girin');
+        if (direction !== 'above' && direction !== 'below') {
+          return error('direction "above" veya "below" olmalı');
+        }
+        const id = crypto.randomUUID();
+        await env.DB
+          .prepare(
+            'INSERT INTO level_alerts (id, symbol, level, direction, note) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(id, symbol, level, direction, body.note ?? null)
+          .run();
+        const row = await env.DB
+          .prepare('SELECT * FROM level_alerts WHERE id = ?')
+          .bind(id)
+          .first<LevelAlert>();
+        return json({ level: row }, 201);
+      }
+      const levelDelete = path.match(/^\/api\/levels\/([\w-]+)$/);
+      if (levelDelete && request.method === 'DELETE') {
+        await env.DB
+          .prepare('DELETE FROM level_alerts WHERE id = ?')
+          .bind(levelDelete[1])
+          .run();
+        return json({ ok: true });
+      }
+
+      // Manuel pozisyon takibi: listeleme, ekleme, kapatma
+      if (path === '/api/tracked' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM tracked_positions ORDER BY created_at DESC LIMIT 100')
+          .all<TrackedPosition>();
+        return json({ tracked: results });
+      }
+      if (path === '/api/tracked' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const symbol = String(body.symbol ?? '').toUpperCase().trim();
+        const quantity = Number(body.quantity);
+        const entryPrice = Number(body.entry_price);
+        if (!symbol) return error('Sembol gerekli');
+        if (!Number.isFinite(quantity) || quantity <= 0) return error('Geçerli adet girin');
+        if (!Number.isFinite(entryPrice) || entryPrice <= 0) return error('Geçerli giriş fiyatı girin');
+        const id = crypto.randomUUID();
+        await env.DB
+          .prepare(
+            'INSERT INTO tracked_positions (id, symbol, quantity, entry_price, note) VALUES (?, ?, ?, ?, ?)'
+          )
+          .bind(id, symbol, quantity, entryPrice, body.note ?? null)
+          .run();
+        const row = await env.DB
+          .prepare('SELECT * FROM tracked_positions WHERE id = ?')
+          .bind(id)
+          .first<TrackedPosition>();
+        return json({ tracked: row }, 201);
+      }
+      const trackedClose = path.match(/^\/api\/tracked\/([\w-]+)\/close$/);
+      if (trackedClose && request.method === 'POST') {
+        let body: any = {};
+        try {
+          body = await request.json();
+        } catch {
+          // gövde opsiyonel: verilmezse güncel fiyattan kapat
+        }
+        const row = await env.DB
+          .prepare("SELECT * FROM tracked_positions WHERE id = ? AND status = 'active'")
+          .bind(trackedClose[1])
+          .first<TrackedPosition>();
+        if (!row) return error('Aktif takip pozisyonu bulunamadı', 404);
+        let exitPrice = Number(body.exit_price);
+        if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
+          const quote = await getQuote(row.symbol);
+          if (!quote) return error('Güncel fiyat alınamadı, exit_price gönderin');
+          exitPrice = quote.price;
+        }
+        const pnl = (exitPrice - row.entry_price) * row.quantity;
+        await env.DB
+          .prepare(
+            `UPDATE tracked_positions SET status = 'closed', exit_price = ?, pnl = ?, closed_at = datetime('now') WHERE id = ?`
+          )
+          .bind(exitPrice, pnl, row.id)
+          .run();
+        return json({ ok: true, exit_price: exitPrice, pnl });
+      }
+      const trackedDelete = path.match(/^\/api\/tracked\/([\w-]+)$/);
+      if (trackedDelete && request.method === 'DELETE') {
+        await env.DB
+          .prepare('DELETE FROM tracked_positions WHERE id = ?')
+          .bind(trackedDelete[1])
+          .run();
+        return json({ ok: true });
+      }
+      if (path === '/api/tracked/report' && request.method === 'POST') {
+        const sent = await reportTrackedPositions(env.DB, env, {
+          force: url.searchParams.get('force') === '1',
+        });
+        return json({ ok: true, sent });
+      }
+
+      // Nabız dedektörü: son alarmlar + manuel tetikleme
+      if (path === '/api/pulse' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM pulse_alerts ORDER BY created_at DESC LIMIT 50')
+          .all<PulseAlert>();
+        return json({ alerts: results });
+      }
+      if (path === '/api/pulse/run' && request.method === 'POST') {
+        const force = url.searchParams.get('force') === '1';
+        const minBurstParam = Number(url.searchParams.get('minBurst'));
+        const result = await runPulse(env.DB, env, {
+          force,
+          minBurst: Number.isFinite(minBurstParam) && minBurstParam > 0 ? minBurstParam : undefined,
+          notify: url.searchParams.get('notify') !== '0',
+        });
+        return json(result);
+      }
+
+      // Kalan uçlar cihaz kimliğine bağlı bir portföy gerektirir
+      const deviceId = request.headers.get('X-Device-Id')?.trim();
+      if (!deviceId || deviceId.length < 8) {
+        return error('X-Device-Id başlığı gerekli', 401);
+      }
+      const portfolio = await getOrCreatePortfolio(env.DB, deviceId);
+
+      if (path.startsWith('/api/portfolio')) {
+        return await portfolioRoutes(request, url, env.DB, portfolio);
+      }
+      if (path.startsWith('/api/orders')) {
+        return await orderRoutes(request, url, env.DB, portfolio);
+      }
+      if (path.startsWith('/api/watchlist')) {
+        return await watchlistRoutes(request, url, env.DB, portfolio);
+      }
+      if (path.startsWith('/api/strategies') || path === '/api/signals') {
+        return await strategyRoutes(request, url, env.DB, portfolio, env);
+      }
+      if (path.startsWith('/api/bot')) {
+        return await botRoutes(request, url, env.DB, portfolio, env);
+      }
+
+      return error('Bulunamadı', 404);
+    } catch (e) {
+      console.error('API hatası:', e);
+      return error('Sunucu hatası, lütfen tekrar deneyin', 500);
+    }
+  },
+
+  // Cron'lar:
+  //  - 5 dk'lık: açık limit emirlerini doldur + etkin stratejileri çalıştır (sinyal → Telegram)
+  //  - tarama: günlük trade adaylarını bul → Telegram bildirimi
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        const kind: JobKind =
+          event.cron === SCAN_CRON ? 'scan' : event.cron === TRADER_CRON ? 'trader' : 'cycle';
+        await runScheduledJob(env, kind, `cron:${event.cron}`);
+      })()
+    );
+  },
+};
+
+// ---- Zamanlanmış iş çalıştırıcı ----
+// Hem Cloudflare cron'u hem /api/cron/tick (yedek tetikleyici) bu fonksiyonu
+// kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
+// (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
+
+type JobKind = 'cycle' | 'trader' | 'scan';
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3 };
+const JOB_MIN_INTERVAL_S: Record<JobKind, number> = { cycle: 240, trader: 540, scan: 10800 };
+
+async function jobDue(db: D1Database, kind: JobKind): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT at FROM cron_heartbeat WHERE id = ?')
+    .bind(JOB_IDS[kind])
+    .first<{ at: string }>();
+  if (!row) return true;
+  const age = Date.now() / 1000 - new Date(row.at.replace(' ', 'T') + 'Z').getTime() / 1000;
+  return age >= JOB_MIN_INTERVAL_S[kind];
+}
+
+async function stampJob(db: D1Database, kind: JobKind, source: string): Promise<void> {
+  await db
+    .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (?, ?, datetime('now'))")
+    .bind(JOB_IDS[kind], source)
+    .run();
+}
+
+export async function runScheduledJob(
+  env: Env,
+  kind: JobKind,
+  source: string
+): Promise<boolean> {
+  try {
+    if (!(await jobDue(env.DB, kind))) return false;
+    await stampJob(env.DB, kind, source);
+
+    if (kind === 'scan') {
+      const result = await runScan(env, { notify: true, db: env.DB });
+      console.log(
+        `Tarama: ${result.scannedCount} hisse, ${result.candidates.length} aday, Telegram: ${result.notified}`
+      );
+      return true;
+    }
+    if (kind === 'trader') {
+      const count = await runAllTraders(env.DB, env, { report: true });
+      console.log(`Trader döngüsü: ${count} bot çalıştı`);
+      return true;
+    }
+    const filled = await processOpenOrders(env.DB);
+        const summary = await runStrategies(env.DB, undefined, env);
+        // Nabız dedektörü: erken momentum patlamalarını yakala → anında Telegram
+        let pulseInfo = 'atlandı';
+        try {
+          const pulse = await runPulse(env.DB, env);
+          pulseInfo = pulse.ran
+            ? `${pulse.alerts.length} alarm (${pulse.triggered.length} tetik)`
+            : pulse.skippedReason ?? 'atlandı';
+          // Erken yakalanan hareket, 10 dk döngüsünü beklemeden işleme dönsün
+          if (pulse.alerts.length) {
+            const entered = await enterFromPulseAlerts(env.DB, env, pulse.alerts);
+            if (entered) pulseInfo += `, ${entered} anında giriş`;
+          }
+        } catch (e) {
+          console.error('Nabız hatası:', e);
+        }
+        // Seviye bekçisi: kullanıcı tanımlı fiyat seviyeleri
+        let levelInfo = 0;
+        try {
+          levelInfo = await checkLevelAlerts(env.DB, env);
+        } catch (e) {
+          console.error('Seviye alarmı hatası:', e);
+        }
+        // Manuel pozisyon takibi: 15 dakikada bir rapor (5 dk'lık cron'un her 3. vuruşu)
+        try {
+          if (new Date().getUTCMinutes() % 15 === 0 && (await getActiveTracked(env.DB)).length) {
+            await reportTrackedPositions(env.DB, env);
+          }
+        } catch (e) {
+          console.error('Takip raporu hatası:', e);
+        }
+    console.log(
+      `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}; seviye: ${levelInfo}`
+    );
+    return true;
+  } catch (e) {
+    console.error(`Zamanlanmış iş hatası (${kind}):`, e);
+    return true; // damga atıldı; hata logda
+  }
+}

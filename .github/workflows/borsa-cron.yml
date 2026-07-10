@@ -1,0 +1,35 @@
+name: Borsa Cron Tick
+
+# Cloudflare cron tetikleyicileri (10 Tem'de) sessizce durabildi.
+# Bu workflow GitHub altyapısında çalışır (konteynerden/oturumdan bağımsız)
+# ve seans saatlerinde Worker'ın /api/cron/tick ucunu düzenli olarak dürter.
+# Worker tarafındaki tür-bazlı asgari aralık korumaları çift çalışmayı önler,
+# bu yüzden Cloudflare cron'u geri gelse bile güvenli (idempotent).
+
+on:
+  schedule:
+    # ABD seansı (UTC 13:30-20:00, hafta içi). GitHub cron 5 dk çözünürlük;
+    # gerçek tetikleme birkaç dk gecikebilir — Worker guard'ı bunu tolere eder.
+    - cron: "*/5 13-20 * * 1-5"
+    - cron: "0,30 20 * * 1-5"   # kapanış civarı birkaç ek dürtü
+  workflow_dispatch:
+
+# Aynı anda tek koşum; üst üste binmeyi engelle
+concurrency:
+  group: borsa-cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tick worker scheduled jobs
+        run: |
+          for i in 1 2 3; do
+            RES=$(curl -sS -m 90 -X POST "https://borsa-paper-api.barbah.workers.dev/api/cron/tick" || true)
+            echo "tick $i: $RES"
+            echo "$RES" | grep -q '"ok":true' && break
+            sleep 5
+          done
+          echo "== health =="
+          curl -sS -m 30 "https://borsa-paper-api.barbah.workers.dev/api/health" || true

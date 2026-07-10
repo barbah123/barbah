@@ -55,6 +55,24 @@ export default {
         return await marketRoutes(request, url);
       }
 
+      // Sağlık: cron kalp atışı + sürüm bilgisi
+      if (path === '/api/health' && request.method === 'GET') {
+        const hb = await env.DB
+          .prepare('SELECT cron, at FROM cron_heartbeat WHERE id = 1')
+          .first<{ cron: string; at: string }>();
+        const ageSeconds = hb
+          ? Math.round(Date.now() / 1000 - new Date(hb.at.replace(' ', 'T') + 'Z').getTime() / 1000)
+          : null;
+        return json({
+          ok: true,
+          lastCron: hb?.cron ?? null,
+          lastCronAt: hb?.at ?? null,
+          cronAgeSeconds: ageSeconds,
+          // Hafta içi seans saatlerinde 300 sn'yi aşan yaş = cron'lar durmuş demektir
+          cronHealthy: ageSeconds != null && ageSeconds < 900,
+        });
+      }
+
       // Tarama katmanı: günlük trade adaylarını bul (POST + notify → Telegram'a da gönder)
       if (path === '/api/scan' && (request.method === 'GET' || request.method === 'POST')) {
         const notify = request.method === 'POST' && url.searchParams.get('notify') !== '0';
@@ -236,6 +254,15 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
+        // Kalp atışı: cron'ların canlı olduğunun kanıtı (/api/health'ten okunur)
+        try {
+          await env.DB
+            .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (1, ?, datetime('now'))")
+            .bind(event.cron)
+            .run();
+        } catch (e) {
+          console.error('Kalp atışı yazılamadı:', e);
+        }
         if (event.cron === SCAN_CRON) {
           const result = await runScan(env, { notify: true, db: env.DB });
           console.log(

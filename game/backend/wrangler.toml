@@ -1,0 +1,17 @@
+name = "badaland-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "3e1b8b1eb88b15ef011e981b60b05e77"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "badaland-db"
+database_id = "placeholder"
+
+# Gizli degerler (wrangler secret put ile eklenir):
+#   JWT_SECRET      — zorunlu, rastgele uzun bir metin
+#   RESEND_API_KEY  — e-posta gondermek icin (resend.com). Ayarlanmazsa
+#                     dogrulama kodu API cevabinda dev_code olarak doner
+#                     (SADECE gelistirme icin!).
+# Istege bagli degisken:
+#   EMAIL_FROM      — gonderen adresi, or. "Badaland <no-reply@badaland.com>"

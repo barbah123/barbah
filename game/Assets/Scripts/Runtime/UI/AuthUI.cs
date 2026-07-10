@@ -12,6 +12,7 @@ namespace Barbah.Coop
     public class AuthUI : MonoBehaviour
     {
         private GameObject panel, loginBox, registerBox, verifyBox;
+        private Transform contentRoot; // poster varsa sag bolum, yoksa panelin kendisi
         private InputField loginEmail, loginPassword;
         private InputField registerEmail, registerUsername, registerPassword;
         private InputField codeInput;
@@ -21,14 +22,48 @@ namespace Barbah.Coop
         public GameObject Build(RectTransform root)
         {
             panel = UiFactory.Panel(root, "AuthPanel");
+            contentRoot = panel.transform;
 
-            UiFactory.Label(panel.transform, "BADALAND", new Vector2(0.5f, 1f), new Vector2(0f, -150f),
-                new Vector2(1200f, 160f), 110, FontStyle.Bold, UiTheme.Accent);
-            UiFactory.Label(panel.transform, "iki kişilik macera", new Vector2(0.5f, 1f), new Vector2(0f, -260f),
+            // Giris posteri (Assets/Resources/PosterBadaland.png) varsa sol yariya koy,
+            // form sag yarida kalir. Poster yoksa eski tam-ekran duzen kullanilir.
+            var poster = Resources.Load<Texture2D>("PosterBadaland");
+            if (poster != null)
+            {
+                var frame = new GameObject("PosterCerceve", typeof(RectTransform), typeof(RectMask2D));
+                frame.transform.SetParent(panel.transform, false);
+                var frameRect = (RectTransform)frame.transform;
+                frameRect.anchorMin = new Vector2(0f, 0f);
+                frameRect.anchorMax = new Vector2(0.44f, 1f);
+                frameRect.offsetMin = Vector2.zero;
+                frameRect.offsetMax = Vector2.zero;
+
+                var posterGO = new GameObject("Poster", typeof(RectTransform), typeof(Image), typeof(AspectRatioFitter));
+                posterGO.transform.SetParent(frame.transform, false);
+                var posterImage = posterGO.GetComponent<Image>();
+                posterImage.sprite = Sprite.Create(poster,
+                    new Rect(0f, 0f, poster.width, poster.height), new Vector2(0.5f, 0.5f));
+                posterImage.raycastTarget = false;
+                var fitter = posterGO.GetComponent<AspectRatioFitter>();
+                fitter.aspectRatio = (float)poster.width / poster.height;
+                fitter.aspectMode = AspectRatioFitter.AspectMode.EnvelopeParent;
+
+                var right = new GameObject("SagBolum", typeof(RectTransform));
+                right.transform.SetParent(panel.transform, false);
+                var rightRect = (RectTransform)right.transform;
+                rightRect.anchorMin = new Vector2(0.44f, 0f);
+                rightRect.anchorMax = new Vector2(1f, 1f);
+                rightRect.offsetMin = Vector2.zero;
+                rightRect.offsetMax = Vector2.zero;
+                contentRoot = right.transform;
+            }
+
+            UiFactory.Label(contentRoot, "BADALAND", new Vector2(0.5f, 1f), new Vector2(0f, -150f),
+                new Vector2(1200f, 160f), poster != null ? 92 : 110, FontStyle.Bold, UiTheme.Accent);
+            UiFactory.Label(contentRoot, "iki kişilik macera", new Vector2(0.5f, 1f), new Vector2(0f, -250f),
                 new Vector2(800f, 60f), 34, FontStyle.Italic, UiTheme.TextMuted);
 
-            status = UiFactory.Label(panel.transform, "", new Vector2(0.5f, 0f), new Vector2(0f, 90f),
-                new Vector2(1500f, 110f), 30, FontStyle.Normal, UiTheme.TextMuted);
+            status = UiFactory.Label(contentRoot, "", new Vector2(0.5f, 0f), new Vector2(0f, 90f),
+                new Vector2(1000f, 110f), 30, FontStyle.Normal, UiTheme.TextMuted);
 
             BuildLoginBox();
             BuildRegisterBox();
@@ -47,7 +82,7 @@ namespace Barbah.Coop
 
         private void BuildLoginBox()
         {
-            loginBox = UiFactory.Group(panel.transform, "GirisKutusu");
+            loginBox = UiFactory.Group(contentRoot, "GirisKutusu");
             var center = new Vector2(0.5f, 0.5f);
 
             loginEmail = UiFactory.Input(loginBox.transform, "E-posta", center, new Vector2(0f, 140f), new Vector2(620f, 90f));
@@ -63,7 +98,7 @@ namespace Barbah.Coop
 
         private void BuildRegisterBox()
         {
-            registerBox = UiFactory.Group(panel.transform, "KayitKutusu");
+            registerBox = UiFactory.Group(contentRoot, "KayitKutusu");
             var center = new Vector2(0.5f, 0.5f);
 
             registerEmail = UiFactory.Input(registerBox.transform, "E-posta", center, new Vector2(0f, 195f), new Vector2(620f, 90f));
@@ -79,7 +114,7 @@ namespace Barbah.Coop
 
         private void BuildVerifyBox()
         {
-            verifyBox = UiFactory.Group(panel.transform, "DogrulamaKutusu");
+            verifyBox = UiFactory.Group(contentRoot, "DogrulamaKutusu");
             var center = new Vector2(0.5f, 0.5f);
 
             verifyInfo = UiFactory.Label(verifyBox.transform, "", center, new Vector2(0f, 190f),

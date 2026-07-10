@@ -55,22 +55,40 @@ export default {
         return await marketRoutes(request, url);
       }
 
-      // Sağlık: cron kalp atışı + sürüm bilgisi
+      // Sağlık: iş türü bazında kalp atışları
       if (path === '/api/health' && request.method === 'GET') {
-        const hb = await env.DB
-          .prepare('SELECT cron, at FROM cron_heartbeat WHERE id = 1')
-          .first<{ cron: string; at: string }>();
-        const ageSeconds = hb
-          ? Math.round(Date.now() / 1000 - new Date(hb.at.replace(' ', 'T') + 'Z').getTime() / 1000)
-          : null;
+        const { results } = await env.DB
+          .prepare('SELECT id, cron, at FROM cron_heartbeat')
+          .all<{ id: number; cron: string; at: string }>();
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan' };
+        const jobs: Record<string, unknown> = {};
+        let newestAge: number | null = null;
+        for (const r of results) {
+          const age = Math.round(
+            Date.now() / 1000 - new Date(r.at.replace(' ', 'T') + 'Z').getTime() / 1000
+          );
+          jobs[names[r.id] ?? String(r.id)] = { at: r.at, ageSeconds: age, source: r.cron };
+          if (newestAge == null || age < newestAge) newestAge = age;
+        }
         return json({
           ok: true,
-          lastCron: hb?.cron ?? null,
-          lastCronAt: hb?.at ?? null,
-          cronAgeSeconds: ageSeconds,
-          // Hafta içi seans saatlerinde 300 sn'yi aşan yaş = cron'lar durmuş demektir
-          cronHealthy: ageSeconds != null && ageSeconds < 900,
+          jobs,
+          cronHealthy: newestAge != null && newestAge < 900,
         });
+      }
+
+      // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.
+      // Tür bazlı asgari aralık korumaları çift çalışmayı ve kötüye kullanımı sınırlar.
+      if (path === '/api/cron/tick' && request.method === 'POST') {
+        const ran: string[] = [];
+        if (await runScheduledJob(env, 'cycle', 'tick')) ran.push('cycle');
+        if (await runScheduledJob(env, 'trader', 'tick')) ran.push('trader');
+        // Tarama yalnızca kendi pencerelerinde (13:40/17:40/19:40 UTC ± 5 dk)
+        const d = new Date();
+        const inScanWindow =
+          [13, 17, 19].includes(d.getUTCHours()) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
+        if (inScanWindow && (await runScheduledJob(env, 'scan', 'tick'))) ran.push('scan');
+        return json({ ok: true, ran });
       }
 
       // Tarama katmanı: günlük trade adaylarını bul (POST + notify → Telegram'a da gönder)
@@ -254,28 +272,62 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
-        // Kalp atışı: cron'ların canlı olduğunun kanıtı (/api/health'ten okunur)
-        try {
-          await env.DB
-            .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (1, ?, datetime('now'))")
-            .bind(event.cron)
-            .run();
-        } catch (e) {
-          console.error('Kalp atışı yazılamadı:', e);
-        }
-        if (event.cron === SCAN_CRON) {
-          const result = await runScan(env, { notify: true, db: env.DB });
-          console.log(
-            `Tarama: ${result.scannedCount} hisse, ${result.candidates.length} aday, Telegram: ${result.notified}`
-          );
-          return;
-        }
-        if (event.cron === TRADER_CRON) {
-          const count = await runAllTraders(env.DB, env, { report: true });
-          console.log(`Trader döngüsü: ${count} bot çalıştı`);
-          return;
-        }
-        const filled = await processOpenOrders(env.DB);
+        const kind: JobKind =
+          event.cron === SCAN_CRON ? 'scan' : event.cron === TRADER_CRON ? 'trader' : 'cycle';
+        await runScheduledJob(env, kind, `cron:${event.cron}`);
+      })()
+    );
+  },
+};
+
+// ---- Zamanlanmış iş çalıştırıcı ----
+// Hem Cloudflare cron'u hem /api/cron/tick (yedek tetikleyici) bu fonksiyonu
+// kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
+// (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
+
+type JobKind = 'cycle' | 'trader' | 'scan';
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3 };
+const JOB_MIN_INTERVAL_S: Record<JobKind, number> = { cycle: 240, trader: 540, scan: 10800 };
+
+async function jobDue(db: D1Database, kind: JobKind): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT at FROM cron_heartbeat WHERE id = ?')
+    .bind(JOB_IDS[kind])
+    .first<{ at: string }>();
+  if (!row) return true;
+  const age = Date.now() / 1000 - new Date(row.at.replace(' ', 'T') + 'Z').getTime() / 1000;
+  return age >= JOB_MIN_INTERVAL_S[kind];
+}
+
+async function stampJob(db: D1Database, kind: JobKind, source: string): Promise<void> {
+  await db
+    .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (?, ?, datetime('now'))")
+    .bind(JOB_IDS[kind], source)
+    .run();
+}
+
+export async function runScheduledJob(
+  env: Env,
+  kind: JobKind,
+  source: string
+): Promise<boolean> {
+  try {
+    if (!(await jobDue(env.DB, kind))) return false;
+    await stampJob(env.DB, kind, source);
+
+    if (kind === 'scan') {
+      const result = await runScan(env, { notify: true, db: env.DB });
+      console.log(
+        `Tarama: ${result.scannedCount} hisse, ${result.candidates.length} aday, Telegram: ${result.notified}`
+      );
+      return true;
+    }
+    if (kind === 'trader') {
+      const count = await runAllTraders(env.DB, env, { report: true });
+      console.log(`Trader döngüsü: ${count} bot çalıştı`);
+      return true;
+    }
+    const filled = await processOpenOrders(env.DB);
         const summary = await runStrategies(env.DB, undefined, env);
         // Nabız dedektörü: erken momentum patlamalarını yakala → anında Telegram
         let pulseInfo = 'atlandı';
@@ -307,10 +359,12 @@ export default {
         } catch (e) {
           console.error('Takip raporu hatası:', e);
         }
-        console.log(
-          `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}; seviye: ${levelInfo}`
-        );
-      })()
+    console.log(
+      `Cron: ${filled} limit emri doldu; strateji: ${JSON.stringify(summary)}; nabız: ${pulseInfo}; seviye: ${levelInfo}`
     );
-  },
-};
+    return true;
+  } catch (e) {
+    console.error(`Zamanlanmış iş hatası (${kind}):`, e);
+    return true; // damga atıldı; hata logda
+  }
+}

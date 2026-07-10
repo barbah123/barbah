@@ -101,10 +101,13 @@ namespace Barbah.Coop
                 SetStatus("Hazır — oda kur ya da kodla katıl.");
                 SetBusy(false);
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                SetStatus("Servis hatası: " + e.Message +
-                          "\nUnity'de Project Settings > Services'ten projeyi bağladığından emin ol.");
+                SetBusy(false);
+                SetStatus("Çevrimiçi servisler başlatılamadı — Unity Cloud bağlı değil.\n" +
+                          "Oda kurmak için (bir kez): Edit > Project Settings > Services'ten projeyi bağla, " +
+                          "cloud.unity.com'dan Relay'i etkinleştir.\n" +
+                          "Şimdilik TEK BAŞINA DENE (offline) ile oynayabilirsin.");
             }
         }
 

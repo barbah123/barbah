@@ -1,0 +1,295 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1500" width="1000" height="1500">
+  <defs>
+    <radialGradient id="sky" cx="50%" cy="42%" r="85%">
+      <stop offset="0%" stop-color="#FFEFC2"/>
+      <stop offset="35%" stop-color="#FFD98F"/>
+      <stop offset="70%" stop-color="#F2A85C"/>
+      <stop offset="100%" stop-color="#B96A33"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFEA9E"/>
+      <stop offset="45%" stop-color="#FFC94F"/>
+      <stop offset="100%" stop-color="#F09A2B"/>
+    </linearGradient>
+    <linearGradient id="cheese" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFDE6B"/>
+      <stop offset="100%" stop-color="#EFA93C"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9C6236"/>
+      <stop offset="100%" stop-color="#5E3418"/>
+    </linearGradient>
+    <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E7D3AC"/>
+      <stop offset="100%" stop-color="#C9AE82"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="soft6" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="titleShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="0" flood-color="#7E150E" flood-opacity="0.95"/>
+      <feDropShadow dx="0" dy="20" stdDeviation="14" flood-color="#5A2A10" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- Gokyuzu -->
+  <rect width="1000" height="1500" fill="url(#sky)"/>
+  <circle cx="500" cy="640" r="330" fill="#FFF4CE" opacity="0.55" filter="url(#soft)"/>
+  <circle cx="500" cy="640" r="190" fill="#FFFBE8" opacity="0.5" filter="url(#soft)"/>
+
+  <!-- Ucusan tozlar / kirintilar -->
+  <g fill="#FFF3D2">
+    <circle cx="130" cy="520" r="7" opacity="0.9"/>
+    <circle cx="205" cy="430" r="4" opacity="0.7"/>
+    <circle cx="835" cy="470" r="6" opacity="0.85"/>
+    <circle cx="905" cy="580" r="4" opacity="0.7"/>
+    <circle cx="760" cy="380" r="5" opacity="0.6"/>
+    <circle cx="90"  cy="760" r="5" opacity="0.7"/>
+    <circle cx="925" cy="820" r="6" opacity="0.75"/>
+    <circle cx="150" cy="980" r="4" opacity="0.6"/>
+  </g>
+
+  <!-- Kose yapraklari (bulanik on plan) -->
+  <g filter="url(#soft)" opacity="0.85">
+    <path d="M -40 -20 Q 180 40 120 180 Q 60 300 -60 260 Z" fill="#3E4A22"/>
+    <path d="M 210 -60 Q 320 30 240 140 Q 170 220 90 150 Q 130 30 210 -60 Z" fill="#4A5827"/>
+    <path d="M 1040 -30 Q 840 30 900 190 Q 950 320 1070 260 Z" fill="#3E4A22"/>
+    <path d="M 780 -70 Q 700 60 800 130 Q 890 190 930 90 Q 870 -10 780 -70 Z" fill="#55632D"/>
+    <path d="M -70 1180 Q 120 1200 90 1350 Q 60 1480 -80 1440 Z" fill="#2E3618" opacity="0.9"/>
+    <path d="M 1070 1220 Q 890 1250 930 1390 Q 970 1500 1090 1470 Z" fill="#2E3618" opacity="0.9"/>
+  </g>
+
+  <!-- BASLIK -->
+  <g filter="url(#titleShadow)">
+    <g transform="translate(500,255) rotate(-4)">
+      <text x="0" y="0" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+            font-size="196" fill="url(#gold)" stroke="#7E150E" stroke-width="14" paint-order="stroke"
+            letter-spacing="2">BADA</text>
+    </g>
+    <g transform="translate(500,430) rotate(2.5)">
+      <text x="0" y="0" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+            font-size="196" fill="url(#gold)" stroke="#7E150E" stroke-width="14" paint-order="stroke"
+            letter-spacing="6">LAND</text>
+    </g>
+  </g>
+
+  <!-- Baslik ustunde kucuk kedi siluti -->
+  <g transform="translate(760,88) rotate(4)" fill="#7E150E">
+    <ellipse cx="0" cy="26" rx="20" ry="16"/>
+    <circle cx="0" cy="2" r="13"/>
+    <path d="M -11 -6 L -8 -22 L -1 -9 Z"/>
+    <path d="M 11 -6 L 8 -22 L 1 -9 Z"/>
+    <path d="M 18 30 Q 38 22 34 4" stroke="#7E150E" stroke-width="7" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- Alt baslik -->
+  <g transform="translate(500,520)">
+    <text x="0" y="1" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold"
+          font-size="38" fill="#FFF1D2" letter-spacing="8" opacity="0.9" transform="translate(0,3)">İKİ KİŞİLİK MACERA</text>
+    <text x="0" y="0" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold"
+          font-size="38" fill="#8A4A16" letter-spacing="8">İKİ KİŞİLİK MACERA</text>
+  </g>
+
+  <!-- ZEMIN + DUVAR + FARE DELIGI -->
+  <rect x="0" y="1035" width="1000" height="130" fill="url(#wall)"/>
+  <rect x="0" y="1148" width="1000" height="22" fill="#8A6E45"/>
+  <!-- Fare deligi -->
+  <path d="M 320 1165 L 320 1080 Q 500 940 680 1080 L 680 1165 Z" fill="#3A241A"/>
+  <path d="M 338 1165 L 338 1088 Q 500 962 662 1088 L 662 1165 Z" fill="#150C07"/>
+
+  <!-- Ahsap zemin -->
+  <rect x="0" y="1165" width="1000" height="335" fill="url(#floor)"/>
+  <g stroke="#4A2812" stroke-width="6" opacity="0.85">
+    <path d="M 0 1258 H 1000"/>
+    <path d="M 0 1368 H 1000"/>
+    <path d="M 170 1165 L 130 1258"/>
+    <path d="M 540 1165 L 560 1258"/>
+    <path d="M 840 1165 L 870 1258"/>
+    <path d="M 320 1258 L 290 1368"/>
+    <path d="M 700 1258 L 730 1368"/>
+    <path d="M 140 1368 L 100 1500"/>
+    <path d="M 510 1368 L 520 1500"/>
+    <path d="M 880 1368 L 920 1500"/>
+  </g>
+  <!-- Catlak -->
+  <path d="M 500 1225 L 475 1275 L 520 1320 L 462 1390 L 540 1450 L 492 1500 L 556 1500 L 598 1424 L 540 1350 L 588 1282 L 548 1240 L 552 1210 Z"
+        fill="#170C05" opacity="0.95"/>
+
+  <!-- PEYNIR KOTU ADAMLAR -->
+  <!-- Buyuk peynir: delikten cikiyor -->
+  <g transform="translate(500,1120)">
+    <path d="M -120 40 L 120 40 L 78 -78 Q 0 -108 -78 -78 Z" fill="url(#cheese)" stroke="#B97818" stroke-width="6"/>
+    <ellipse cx="-48" cy="6" rx="16" ry="12" fill="#D98E2B"/>
+    <ellipse cx="42" cy="-14" rx="12" ry="9" fill="#D98E2B"/>
+    <ellipse cx="6" cy="24" rx="10" ry="8" fill="#D98E2B"/>
+    <!-- kizgin gozler -->
+    <ellipse cx="-26" cy="-38" rx="15" ry="17" fill="#FFFFFF"/>
+    <ellipse cx="26" cy="-38" rx="15" ry="17" fill="#FFFFFF"/>
+    <circle cx="-23" cy="-34" r="7" fill="#1D1006"/>
+    <circle cx="29" cy="-34" r="7" fill="#1D1006"/>
+    <path d="M -44 -58 L -10 -48" stroke="#8A5510" stroke-width="8" stroke-linecap="round"/>
+    <path d="M 44 -58 L 10 -48" stroke="#8A5510" stroke-width="8" stroke-linecap="round"/>
+    <path d="M -18 -6 Q 0 6 18 -6" stroke="#8A5510" stroke-width="7" fill="none" stroke-linecap="round"/>
+  </g>
+  <!-- Sag peynir: yuvarlanan -->
+  <g transform="translate(745,1240) rotate(18)">
+    <path d="M -88 30 L 88 30 L 57 -57 Q 0 -80 -57 -57 Z" fill="url(#cheese)" stroke="#B97818" stroke-width="5"/>
+    <ellipse cx="-30" cy="2" rx="12" ry="9" fill="#D98E2B"/>
+    <ellipse cx="34" cy="-8" rx="9" ry="7" fill="#D98E2B"/>
+    <ellipse cx="-18" cy="-28" rx="11" ry="13" fill="#FFFFFF"/>
+    <ellipse cx="20" cy="-28" rx="11" ry="13" fill="#FFFFFF"/>
+    <circle cx="-15" cy="-25" r="5.5" fill="#1D1006"/>
+    <circle cx="23" cy="-25" r="5.5" fill="#1D1006"/>
+    <path d="M -32 -44 L -6 -36" stroke="#8A5510" stroke-width="6" stroke-linecap="round"/>
+    <path d="M 34 -44 L 8 -36" stroke="#8A5510" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <path d="M 640 1290 Q 690 1310 740 1295" stroke="#FFE9AE" stroke-width="6" fill="none" opacity="0.6" stroke-linecap="round"/>
+  <!-- Sol kucuk peynir -->
+  <g transform="translate(240,1300) rotate(-12)">
+    <path d="M -64 22 L 64 22 L 42 -42 Q 0 -58 -42 -42 Z" fill="url(#cheese)" stroke="#B97818" stroke-width="5"/>
+    <ellipse cx="-20" cy="-2" rx="9" ry="7" fill="#D98E2B"/>
+    <ellipse cx="-12" cy="-22" rx="8" ry="10" fill="#FFFFFF"/>
+    <ellipse cx="16" cy="-22" rx="8" ry="10" fill="#FFFFFF"/>
+    <circle cx="-10" cy="-19" r="4" fill="#1D1006"/>
+    <circle cx="18" cy="-19" r="4" fill="#1D1006"/>
+    <path d="M -22 -34 L -2 -28" stroke="#8A5510" stroke-width="5" stroke-linecap="round"/>
+    <path d="M 26 -34 L 6 -28" stroke="#8A5510" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <!-- KARAHINDIBA (dandelion) -->
+  <path d="M 300 700 Q 380 780 450 830 Q 545 895 590 935" stroke="#5E8C3A" stroke-width="16" fill="none" stroke-linecap="round"/>
+  <path d="M 380 795 Q 420 770 430 730" stroke="#5E8C3A" stroke-width="10" fill="none" stroke-linecap="round"/>
+  <g transform="translate(285,672)">
+    <circle r="92" fill="#FFF8E8" opacity="0.55" filter="url(#soft6)"/>
+    <g stroke="#F5EEDC" stroke-width="4" opacity="0.9">
+      <path d="M 0 0 L 62 -48"/><path d="M 0 0 L -55 -58"/><path d="M 0 0 L 78 8"/>
+      <path d="M 0 0 L -76 14"/><path d="M 0 0 L 34 -74"/><path d="M 0 0 L -20 -78"/>
+      <path d="M 0 0 L 58 52"/><path d="M 0 0 L -52 54"/><path d="M 0 0 L 6 80"/>
+    </g>
+    <g fill="#FFFDF4">
+      <circle cx="62" cy="-48" r="12"/><circle cx="-55" cy="-58" r="12"/><circle cx="78" cy="8" r="12"/>
+      <circle cx="-76" cy="14" r="12"/><circle cx="34" cy="-74" r="12"/><circle cx="-20" cy="-78" r="11"/>
+      <circle cx="58" cy="52" r="12"/><circle cx="-52" cy="54" r="12"/><circle cx="6" cy="80" r="12"/>
+      <circle cx="0" cy="0" r="18"/>
+    </g>
+  </g>
+  <!-- Ucan tohumlar -->
+  <g fill="#FFFDF4" opacity="0.9">
+    <circle cx="160" cy="560" r="9"/>
+    <path d="M 160 560 L 150 585" stroke="#F5EEDC" stroke-width="3"/>
+    <circle cx="390" cy="540" r="8"/>
+    <path d="M 390 540 L 382 562" stroke="#F5EEDC" stroke-width="3"/>
+  </g>
+
+  <!-- KEDI: sapa tutunmus, havada savruluyor -->
+  <g transform="translate(445,800) rotate(24)">
+    <!-- kuyruk -->
+    <path d="M 52 40 Q 120 58 138 6 Q 144 -16 130 -28" stroke="#D97A2E" stroke-width="17" fill="none" stroke-linecap="round"/>
+    <path d="M 138 -8 Q 143 -22 130 -28" stroke="#A85A1C" stroke-width="17" fill="none" stroke-linecap="round"/>
+    <!-- arka bacaklar (tekme) -->
+    <path d="M 62 34 Q 96 62 122 52" stroke="#E8853B" stroke-width="26" fill="none" stroke-linecap="round"/>
+    <path d="M 54 50 Q 74 90 104 92" stroke="#D97A2E" stroke-width="26" fill="none" stroke-linecap="round"/>
+    <!-- govde -->
+    <ellipse cx="18" cy="26" rx="66" ry="44" fill="#E8853B"/>
+    <ellipse cx="0" cy="38" rx="36" ry="24" fill="#FCE8C8"/>
+    <path d="M 40 -4 Q 56 8 52 24" stroke="#C05F1F" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <path d="M 58 8 Q 72 20 66 34" stroke="#C05F1F" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <!-- kafa -->
+    <g transform="translate(-52,-38) rotate(-14)">
+      <path d="M -26 -30 L -38 -62 L -6 -44 Z" fill="#E8853B"/>
+      <path d="M 26 -30 L 38 -62 L 6 -44 Z" fill="#E8853B"/>
+      <path d="M -24 -36 L -31 -52 L -12 -42 Z" fill="#F7B27E"/>
+      <path d="M 24 -36 L 31 -52 L 12 -42 Z" fill="#F7B27E"/>
+      <circle r="46" fill="#E8853B"/>
+      <ellipse cx="0" cy="16" rx="30" ry="20" fill="#FCE8C8"/>
+      <!-- gozler: panik ama eglenceli -->
+      <ellipse cx="-15" cy="-6" rx="12" ry="15" fill="#FFFFFF"/>
+      <ellipse cx="15" cy="-6" rx="12" ry="15" fill="#FFFFFF"/>
+      <circle cx="-13" cy="-2" r="6.5" fill="#241407"/>
+      <circle cx="17" cy="-2" r="6.5" fill="#241407"/>
+      <circle cx="-15" cy="-5" r="2.4" fill="#FFFFFF"/>
+      <circle cx="15" cy="-5" r="2.4" fill="#FFFFFF"/>
+      <!-- burun + agiz -->
+      <path d="M -5 8 L 5 8 L 0 15 Z" fill="#E06A6A"/>
+      <path d="M 0 15 Q 0 22 -8 24 M 0 15 Q 0 22 8 24" stroke="#7A4415" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M -6 26 Q 0 34 8 27" stroke="#7A4415" stroke-width="3.6" fill="none" stroke-linecap="round"/>
+      <!-- biyiklar -->
+      <g stroke="#7A4415" stroke-width="2.6" opacity="0.9">
+        <path d="M -30 10 L -58 4"/><path d="M -30 16 L -58 18"/>
+        <path d="M 30 10 L 58 4"/><path d="M 30 16 L 58 18"/>
+      </g>
+    </g>
+    <!-- on patiler sapi kavriyor (gogus hizasinda) -->
+    <path d="M -30 16 Q -18 0 -2 2" stroke="#E8853B" stroke-width="22" fill="none" stroke-linecap="round"/>
+    <circle cx="0" cy="2" r="13" fill="#F7B27E"/>
+    <path d="M -46 28 Q -38 10 -22 8" stroke="#D97A2E" stroke-width="22" fill="none" stroke-linecap="round"/>
+    <circle cx="-20" cy="8" r="13" fill="#F7B27E"/>
+  </g>
+
+  <!-- TAVUK: sapin ucunda, panik halinde -->
+  <g transform="translate(625,945) rotate(-14)">
+    <!-- kuyruk tuyleri -->
+    <path d="M 48 -6 Q 92 -34 86 -66" stroke="#EDE7DA" stroke-width="20" fill="none" stroke-linecap="round"/>
+    <path d="M 54 4 Q 104 -10 108 -44" stroke="#DFD6C4" stroke-width="20" fill="none" stroke-linecap="round"/>
+    <path d="M 56 16 Q 108 14 118 -14" stroke="#EDE7DA" stroke-width="20" fill="none" stroke-linecap="round"/>
+    <!-- govde -->
+    <ellipse cx="10" cy="18" rx="64" ry="52" fill="#FBF6EA"/>
+    <ellipse cx="-6" cy="34" rx="38" ry="26" fill="#EFE3CC"/>
+    <!-- kanatlar -->
+    <path d="M 34 6 Q 78 26 62 62 Q 36 52 24 34 Z" fill="#F3ECDC" stroke="#D8CCB4" stroke-width="4"/>
+    <path d="M -18 2 Q -74 -18 -88 -52 Q -50 -52 -26 -30 Z" fill="#F3ECDC" stroke="#D8CCB4" stroke-width="4"/>
+    <!-- bacaklar sallaniyor -->
+    <path d="M -6 62 Q -12 96 -34 106" stroke="#E9A13B" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <path d="M 26 66 Q 34 100 20 118" stroke="#E9A13B" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <g stroke="#E9A13B" stroke-width="8" stroke-linecap="round">
+      <path d="M -34 106 L -48 112"/><path d="M -34 106 L -40 118"/><path d="M -34 106 L -26 118"/>
+      <path d="M 20 118 L 6 126"/><path d="M 20 118 L 16 132"/><path d="M 20 118 L 30 130"/>
+    </g>
+    <!-- kafa -->
+    <g transform="translate(-44,-44) rotate(-8)">
+      <!-- ibik -->
+      <circle cx="-12" cy="-38" r="11" fill="#E5453C"/>
+      <circle cx="2" cy="-44" r="12" fill="#E5453C"/>
+      <circle cx="16" cy="-38" r="11" fill="#E5453C"/>
+      <circle r="40" fill="#FBF6EA"/>
+      <!-- gozler: kocaman panik -->
+      <ellipse cx="-10" cy="-6" rx="12" ry="15" fill="#FFFFFF" stroke="#E4D9C2" stroke-width="2"/>
+      <ellipse cx="16" cy="-6" rx="12" ry="15" fill="#FFFFFF" stroke="#E4D9C2" stroke-width="2"/>
+      <circle cx="-8" cy="-2" r="6.5" fill="#241407"/>
+      <circle cx="18" cy="-2" r="6.5" fill="#241407"/>
+      <circle cx="-10" cy="-5" r="2.4" fill="#FFFFFF"/>
+      <circle cx="16" cy="-5" r="2.4" fill="#FFFFFF"/>
+      <!-- acik gaga (bagiriyor) -->
+      <path d="M 2 8 L 34 2 L 8 16 Z" fill="#F2A93B"/>
+      <path d="M 4 16 L 30 24 L 6 26 Z" fill="#D98E2B"/>
+      <!-- sakal (wattle) -->
+      <ellipse cx="4" cy="32" rx="8" ry="12" fill="#E5453C"/>
+    </g>
+    <!-- kanat ucu sapa uzaniyor -->
+  </g>
+
+  <!-- Dusen tuyler -->
+  <g fill="#F7F1E3" opacity="0.95">
+    <path d="M 700 1120 q 10 -18 22 -8 q -6 20 -22 8" />
+    <path d="M 650 1210 q 12 -16 22 -6 q -8 18 -22 6" />
+    <path d="M 330 1050 q 10 -16 20 -8 q -6 18 -20 8" />
+  </g>
+
+  <!-- Alt bant: bolum adi -->
+  <g transform="translate(500,1462)">
+    <rect x="-300" y="-34" width="600" height="58" rx="29" fill="#2A160A" opacity="0.82"/>
+    <text x="0" y="7" text-anchor="middle" font-family="Arial, sans-serif" font-weight="bold"
+          font-size="30" fill="#FFD98F" letter-spacing="4">BÖLÜM 1 • PEYNİR KAÇIŞI</text>
+  </g>
+
+  <!-- Vinyet -->
+  <rect width="1000" height="1500" fill="none"/>
+  <radialGradient id="vig" cx="50%" cy="46%" r="75%">
+    <stop offset="70%" stop-color="#000000" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#3A1A05" stop-opacity="0.55"/>
+  </radialGradient>
+  <rect width="1000" height="1500" fill="url(#vig)"/>
+</svg>

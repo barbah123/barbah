@@ -60,6 +60,16 @@ namespace Barbah.Coop
             return JoinCode;
         }
 
+        /// <summary>
+        /// Relay/servis gerektirmeden yerel host baslatir — editorde ve cihazda
+        /// tek basina hizli test icin (internet ve Unity hesabi istemez).
+        /// </summary>
+        public void StartOfflineHost()
+        {
+            if (!NetworkManager.Singleton.StartHost())
+                throw new Exception("Yerel oyun baslatilamadi.");
+        }
+
         /// <summary>Oda koduyla mevcut odaya katilir.</summary>
         public async Task JoinAsync(string joinCode)
         {

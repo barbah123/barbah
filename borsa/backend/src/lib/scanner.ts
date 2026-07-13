@@ -41,28 +41,59 @@ export interface SparkSeries {
   lastTime: number; // son barın unix zamanı
 }
 
-export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
-  const out = new Map<string, SparkSeries>();
-  // Yahoo spark istek başına en fazla 20 sembol kabul eder → 80'lik evren 4 istek
-  for (let i = 0; i < symbols.length; i += 20) {
-    const chunk = symbols.slice(i, i + 20);
+// Yahoo'nun toplu "spark" ucu Cloudflare Worker IP'lerinden engelleniyor (13 Tem);
+// oysa tekil "chart" ucu Worker'dan sorunsuz çalışıyor. Bu yüzden veri, sembol
+// başına chart ile toplanır. Worker alt-istek bütçesine sığmak için tavan var;
+// çağıranlar hareketli hisseleri (dinamik + sıcak) listenin başına koyar.
+const MAX_SPARK_SYMBOLS = 46;
+const SPARK_CONCURRENCY = 10;
+
+async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
+  try {
     const res = await fetch(
-      `${YAHOO}/v8/finance/spark?symbols=${chunk.join(',')}&range=1d&interval=5m`,
+      `${YAHOO}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`,
       { headers: { 'User-Agent': UA, Accept: 'application/json' } }
     );
-    if (!res.ok) continue;
+    if (!res.ok) return null;
     const data: any = await res.json();
-    for (const symbol of chunk) {
-      const s = data?.[symbol];
-      const closes = (s?.close ?? []).filter((c: number | null) => c != null);
-      if (!s || typeof s.previousClose !== 'number' || closes.length < 8) continue;
-      const timestamps: number[] = s.timestamp ?? [];
-      out.set(symbol, {
-        previousClose: s.previousClose,
-        close: closes,
-        lastTime: timestamps.length ? timestamps[timestamps.length - 1] : 0,
-      });
+    const result = data?.chart?.result?.[0];
+    const meta = result?.meta;
+    const prev = meta?.chartPreviousClose ?? meta?.previousClose;
+    if (typeof prev !== 'number') return null;
+    const ts: number[] = result?.timestamp ?? [];
+    const rawCloses: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
+    const closes = rawCloses.filter((c): c is number => c != null);
+    if (closes.length < 8) {
+      // Gün başı: intraday bar henüz az; en azından anlık fiyatla tek nokta kur
+      if (typeof meta?.regularMarketPrice === 'number') {
+        return {
+          previousClose: prev,
+          close: [meta.regularMarketPrice],
+          lastTime: meta?.regularMarketTime ?? 0,
+        };
+      }
+      return null;
     }
+    return {
+      previousClose: prev,
+      close: closes,
+      lastTime: ts.length ? ts[ts.length - 1] : meta?.regularMarketTime ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
+  const out = new Map<string, SparkSeries>();
+  const targets = [...new Set(symbols)].slice(0, MAX_SPARK_SYMBOLS);
+  for (let i = 0; i < targets.length; i += SPARK_CONCURRENCY) {
+    const batch = targets.slice(i, i + SPARK_CONCURRENCY);
+    const series = await Promise.all(batch.map((s) => fetchChartSeries(s)));
+    batch.forEach((sym, idx) => {
+      const s = series[idx];
+      if (s) out.set(sym, s);
+    });
   }
   return out;
 }
@@ -169,8 +200,9 @@ export interface MarketSnapshot {
  *  gibi kaynaklardan gelen ek izleme sembolleri. */
 export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSnapshot> {
   const dynamic = await getDynamicSymbols();
-  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic, ...extraSymbols])];
-  const dynamicCount = universe.length - SCAN_UNIVERSE.length;
+  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller
+  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])];
+  const dynamicCount = new Set(dynamic).size;
   const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
   return {

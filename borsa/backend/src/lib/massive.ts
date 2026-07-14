@@ -92,7 +92,9 @@ export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
     if (typeof price !== 'number' || price < 3) continue;
     if (typeof prev !== 'number' || prev <= 0) continue;
     if (typeof t.todaysChangePerc !== 'number') continue;
-    if ((t.day?.v ?? 0) < 100_000) continue; // likidite tabanı
+    // Likidite: gün hacmi yoksa (pre-market) önceki gün hacmine düş
+    const liqVol = t.day?.v && t.day.v > 0 ? t.day.v : t.prevDay?.v ?? 0;
+    if (liqVol < 100_000) continue;
     const o = t.day?.o ?? price;
     const h = t.day?.h ?? price;
     const l = t.day?.l ?? price;

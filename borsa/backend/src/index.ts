@@ -88,6 +88,67 @@ export default {
         return json({ provider, massiveConfigured: massiveConfigured(), ping });
       }
 
+      // Yönetici tanısı: hangi portföylerde bot etkin ve hangi bakiyede.
+      // Duplicate/hayalet rapor ayıklamak için — cihaz kimliği maskeli döner.
+      if (path === '/api/admin/state' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare(
+            `SELECT p.id, p.device_id, p.cash, p.starting_cash, p.created_at,
+                    COALESCE(b.enabled, 0) AS enabled,
+                    (SELECT COUNT(*) FROM bot_trades t
+                       WHERE t.portfolio_id = p.id AND t.status = 'open') AS open_trades
+             FROM portfolios p
+             LEFT JOIN bot_config b ON b.portfolio_id = p.id
+             ORDER BY enabled DESC, p.created_at ASC`
+          )
+          .all<{
+            id: string;
+            device_id: string;
+            cash: number;
+            starting_cash: number;
+            created_at: string;
+            enabled: number;
+            open_trades: number;
+          }>();
+        const portfolios = results.map((r) => ({
+          portfolio_id: r.id,
+          device: r.device_id.length > 8 ? `${r.device_id.slice(0, 4)}…${r.device_id.slice(-4)}` : r.device_id,
+          cash: r.cash,
+          starting_cash: r.starting_cash,
+          enabled: r.enabled === 1,
+          open_trades: r.open_trades,
+          created_at: r.created_at,
+        }));
+        return json({ portfolios, enabledCount: portfolios.filter((p) => p.enabled).length });
+      }
+
+      // Yönetici: belirli bir portföyün botunu etkinleştir/devre dışı bırak.
+      // Hayalet test portföyünü susturmak için (body: {device_id, enabled}).
+      if (path === '/api/admin/bot' && request.method === 'POST') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const deviceId = String(body.device_id ?? '').trim();
+        const enabled = body.enabled ? 1 : 0;
+        if (!deviceId) return error('device_id gerekli');
+        const pf = await env.DB
+          .prepare('SELECT id FROM portfolios WHERE device_id = ?')
+          .bind(deviceId)
+          .first<{ id: string }>();
+        if (!pf) return error('Portföy bulunamadı', 404);
+        await env.DB
+          .prepare(
+            `INSERT INTO bot_config (portfolio_id, enabled) VALUES (?, ?)
+             ON CONFLICT(portfolio_id) DO UPDATE SET enabled = excluded.enabled, updated_at = datetime('now')`
+          )
+          .bind(pf.id, enabled)
+          .run();
+        return json({ ok: true, portfolio_id: pf.id, enabled: enabled === 1 });
+      }
+
       // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.
       // Tür bazlı asgari aralık korumaları çift çalışmayı ve kötüye kullanımı sınırlar.
       if (path === '/api/cron/tick' && request.method === 'POST') {
@@ -301,21 +362,26 @@ type JobKind = 'cycle' | 'trader' | 'scan';
 const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3 };
 const JOB_MIN_INTERVAL_S: Record<JobKind, number> = { cycle: 240, trader: 540, scan: 10800 };
 
-async function jobDue(db: D1Database, kind: JobKind): Promise<boolean> {
-  const row = await db
-    .prepare('SELECT at FROM cron_heartbeat WHERE id = ?')
-    .bind(JOB_IDS[kind])
-    .first<{ at: string }>();
-  if (!row) return true;
-  const age = Date.now() / 1000 - new Date(row.at.replace(' ', 'T') + 'Z').getTime() / 1000;
-  return age >= JOB_MIN_INTERVAL_S[kind];
-}
-
-async function stampJob(db: D1Database, kind: JobKind, source: string): Promise<void> {
+// İş yuvasını atomik olarak sahiplen. Tek bir koşullu UPDATE ile hem "vakti
+// geldi mi" kontrolünü hem de damgalamayı yapar; böylece CF cron'u ile
+// /api/cron/tick yedeği aynı anda geçip çift çalışamaz (14 Tem: aynı dakikada
+// iki rapor yarış durumu). meta.changes === 1 ise bu çağrı işi sahiplendi.
+async function claimJob(db: D1Database, kind: JobKind, source: string): Promise<boolean> {
+  // Satır yoksa oluştur; varsa dokunma (eski damgayı korur ki ilk UPDATE geçebilsin).
   await db
-    .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (?, ?, datetime('now'))")
-    .bind(JOB_IDS[kind], source)
+    .prepare(
+      "INSERT OR IGNORE INTO cron_heartbeat (id, cron, at) VALUES (?, ?, datetime('now', ?))"
+    )
+    .bind(JOB_IDS[kind], source, `-${JOB_MIN_INTERVAL_S[kind]} seconds`)
     .run();
+  // Yalnızca asgari aralık dolduysa damgayı ilerlet. Bunu ilk yapan sahiplenir.
+  const res = await db
+    .prepare(
+      "UPDATE cron_heartbeat SET cron = ?, at = datetime('now') WHERE id = ? AND at <= datetime('now', ?)"
+    )
+    .bind(source, JOB_IDS[kind], `-${JOB_MIN_INTERVAL_S[kind]} seconds`)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
 }
 
 export async function runScheduledJob(
@@ -324,8 +390,7 @@ export async function runScheduledJob(
   source: string
 ): Promise<boolean> {
   try {
-    if (!(await jobDue(env.DB, kind))) return false;
-    await stampJob(env.DB, kind, source);
+    if (!(await claimJob(env.DB, kind, source))) return false;
 
     if (kind === 'scan') {
       const result = await runScan(env, { notify: true, db: env.DB });

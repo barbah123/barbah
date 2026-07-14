@@ -2,6 +2,8 @@
 // Anlık fiyat, mum (OHLCV) ve sembol arama. Kaynak: Yahoo Finance
 // (anahtar gerektirmez; tarayıcı User-Agent başlığı zorunludur, yoksa 429 döner).
 
+import { massiveConfigured, massiveQuote, massiveAggregates } from './massive';
+
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
@@ -44,6 +46,15 @@ export async function getQuote(symbol: string): Promise<Quote | null> {
   const cached = quoteCache.get(key);
   if (cached && Date.now() - cached.at < QUOTE_TTL_MS) return cached.quote;
 
+  if (massiveConfigured()) {
+    const mq = await massiveQuote(key);
+    if (mq) {
+      quoteCache.set(key, { quote: mq, at: Date.now() });
+      return mq;
+    }
+    // Massive başarısızsa Yahoo'ya düş (aşağı devam)
+  }
+
   let data: any;
   try {
     data = await yahooFetch(
@@ -78,11 +89,28 @@ export async function getQuotes(symbols: string[]): Promise<Quote[]> {
   return results.filter((q): q is Quote => q !== null);
 }
 
+// '5d' / '1mo' gibi Yahoo aralık kodunu gün sayısına çevirir (Massive from/to için)
+function rangeToDays(range: string): number {
+  const m = range.match(/^(\d+)(d|mo|y)$/);
+  if (!m) return 5;
+  const n = Number(m[1]);
+  return m[2] === 'd' ? n : m[2] === 'mo' ? n * 31 : n * 366;
+}
+
 export async function getCandles(
   symbol: string,
   interval = '5m',
   range = '5d'
 ): Promise<Candle[]> {
+  if (massiveConfigured()) {
+    const now = Date.now();
+    const fromMs = now - rangeToDays(range) * 24 * 60 * 60 * 1000;
+    const mult = interval === '1d' ? 1 : parseInt(interval, 10) || 5;
+    const timespan = interval === '1d' ? 'day' : 'minute';
+    const candles = await massiveAggregates(symbol, mult, timespan as 'minute' | 'day', fromMs, now);
+    if (candles.length) return candles;
+    // Massive boş döndüyse Yahoo'ya düş
+  }
   const data = await yahooFetch(
     `/v8/finance/chart/${encodeURIComponent(symbol.toUpperCase())}` +
       `?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`

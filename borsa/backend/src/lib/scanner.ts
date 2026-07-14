@@ -5,6 +5,7 @@
 
 import { getCandles } from './data';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import { massiveConfigured, massiveMovers, massiveSeriesFor, massiveBroadRows } from './massive';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -41,28 +42,66 @@ export interface SparkSeries {
   lastTime: number; // son barın unix zamanı
 }
 
-export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
-  const out = new Map<string, SparkSeries>();
-  // Yahoo spark istek başına en fazla 20 sembol kabul eder → 80'lik evren 4 istek
-  for (let i = 0; i < symbols.length; i += 20) {
-    const chunk = symbols.slice(i, i + 20);
+// Yahoo'nun toplu "spark" ucu Cloudflare Worker IP'lerinden engelleniyor (13 Tem);
+// oysa tekil "chart" ucu Worker'dan sorunsuz çalışıyor. Bu yüzden veri, sembol
+// başına chart ile toplanır. Worker alt-istek bütçesine sığmak için tavan var;
+// çağıranlar hareketli hisseleri (dinamik + sıcak) listenin başına koyar.
+// Massive güvenilir ve hızlı olduğu için tavan yükseltildi (13→90). Alt-istek
+// bütçesi aşılırsa massiveAggregates hata fırlatmadan boş döner (kademeli
+// kısıtlama), yani yüksek tavan çökme riski taşımaz — sadece bütçe elverdiğince
+// sembol taranır.
+const MAX_SPARK_SYMBOLS = 90;
+const SPARK_CONCURRENCY = 12;
+
+async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
+  try {
     const res = await fetch(
-      `${YAHOO}/v8/finance/spark?symbols=${chunk.join(',')}&range=1d&interval=5m`,
+      `${YAHOO}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`,
       { headers: { 'User-Agent': UA, Accept: 'application/json' } }
     );
-    if (!res.ok) continue;
+    if (!res.ok) return null;
     const data: any = await res.json();
-    for (const symbol of chunk) {
-      const s = data?.[symbol];
-      const closes = (s?.close ?? []).filter((c: number | null) => c != null);
-      if (!s || typeof s.previousClose !== 'number' || closes.length < 8) continue;
-      const timestamps: number[] = s.timestamp ?? [];
-      out.set(symbol, {
-        previousClose: s.previousClose,
-        close: closes,
-        lastTime: timestamps.length ? timestamps[timestamps.length - 1] : 0,
-      });
+    const result = data?.chart?.result?.[0];
+    const meta = result?.meta;
+    const prev = meta?.chartPreviousClose ?? meta?.previousClose;
+    if (typeof prev !== 'number') return null;
+    const ts: number[] = result?.timestamp ?? [];
+    const rawCloses: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
+    const closes = rawCloses.filter((c): c is number => c != null);
+    if (closes.length < 8) {
+      // Gün başı: intraday bar henüz az; en azından anlık fiyatla tek nokta kur
+      if (typeof meta?.regularMarketPrice === 'number') {
+        return {
+          previousClose: prev,
+          close: [meta.regularMarketPrice],
+          lastTime: meta?.regularMarketTime ?? 0,
+        };
+      }
+      return null;
     }
+    return {
+      previousClose: prev,
+      close: closes,
+      lastTime: ts.length ? ts[ts.length - 1] : meta?.regularMarketTime ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
+  if (massiveConfigured()) {
+    return massiveSeriesFor(symbols, MAX_SPARK_SYMBOLS);
+  }
+  const out = new Map<string, SparkSeries>();
+  const targets = [...new Set(symbols)].slice(0, MAX_SPARK_SYMBOLS);
+  for (let i = 0; i < targets.length; i += SPARK_CONCURRENCY) {
+    const batch = targets.slice(i, i + SPARK_CONCURRENCY);
+    const series = await Promise.all(batch.map((s) => fetchChartSeries(s)));
+    batch.forEach((sym, idx) => {
+      const s = series[idx];
+      if (s) out.set(sym, s);
+    });
   }
   return out;
 }
@@ -119,7 +158,7 @@ async function computeRelativeVolume(symbol: string): Promise<number | null> {
 // DİNAMİK EVREN: Yahoo'nun hazır tarayıcılarından (günün en çok yükselenleri +
 // en hacimlileri) sembol çekilir ve sabit evrene eklenir. Böylece "bugün kim
 // oynuyorsa" tarafımızdan taranır. Uç erişilemezse sabit 80 ile devam (fail-open).
-const DYNAMIC_MAX = 60; // Workers istek bütçesi için tavan (evren toplamı ≤ 140)
+const DYNAMIC_MAX = 90; // tüm piyasadan seçilen hareketli sembol tavanı (Massive)
 const SYMBOL_RE = /^[A-Z]{1,5}$/; // ABD hissesi; birim/varant/OTC uzantılarını eler
 
 let dynamicCache: { at: number; symbols: string[] } | null = null;
@@ -128,6 +167,17 @@ const DYNAMIC_TTL_MS = 10 * 60 * 1000;
 export async function getDynamicSymbols(): Promise<string[]> {
   if (dynamicCache && Date.now() - dynamicCache.at < DYNAMIC_TTL_MS) {
     return dynamicCache.symbols;
+  }
+  if (massiveConfigured()) {
+    try {
+      const movers = await massiveMovers(DYNAMIC_MAX);
+      if (movers.length) {
+        dynamicCache = { at: Date.now(), symbols: movers };
+        return movers;
+      }
+    } catch {
+      // Massive erişilemedi: Yahoo screener'a düş
+    }
   }
   const found: string[] = [];
   for (const scrId of ['day_gainers', 'most_actives']) {
@@ -167,10 +217,68 @@ export interface MarketSnapshot {
 /** Tüm evreni tarar; manuel tarama, otonom bot ve nabız dedektörü bu görüntüyü kullanır.
  *  extraSymbols: sıcak sembol hafızası (son günlerin kazananları / nabız alarmları)
  *  gibi kaynaklardan gelen ek izleme sembolleri. */
+// Momentum zenginleştirmesi için en iyi kaç aday aggregates ile çekilsin
+// (alt-istek bütçesi altında kalmalı — Cloudflare ücretsiz plan ~50).
+const ENRICH_TOP = 40;
+
 export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSnapshot> {
+  // MASSIVE: tüm piyasa tek snapshot'tan; momentum yalnızca en iyi adaylarda
+  // aggregates ile zenginleştirilir (geniş kapsama + bütçe dostu).
+  if (massiveConfigured()) {
+    const rows = await massiveBroadRows();
+    if (rows.length) {
+      const all: ScanCandidate[] = rows.map((r) => ({
+        symbol: r.symbol,
+        price: r.price,
+        dayChangePercent: r.dayChangePercent,
+        gapPercent: r.gapPercent,
+        momentumPercent: 0, // broad pass: momentum yok
+        rangePercent: r.rangePercent,
+        relativeVolume: null,
+        direction: r.dayChangePercent >= 0 ? 'long' : 'short',
+        score: Math.abs(r.dayChangePercent) + r.rangePercent * 0.5,
+      }));
+      const byId = new Map(all.map((c) => [c.symbol, c]));
+
+      // En hareketli adaylar + izlenen ek semboller → gerçek momentum/hacim
+      const top = [...all].sort((a, b) => b.score - a.score).slice(0, ENRICH_TOP);
+      const enrichSyms = [
+        ...new Set([...top.map((c) => c.symbol), ...extraSymbols.map((s) => s.toUpperCase())]),
+      ];
+      const series = await fetchSpark(enrichSyms);
+      for (const [sym, s] of series) {
+        const en = analyze(sym, s);
+        const existing = byId.get(sym);
+        if (existing) {
+          existing.momentumPercent = en.momentumPercent;
+          existing.price = en.price;
+          existing.score = en.score;
+        } else {
+          byId.set(sym, en);
+          all.push(en);
+        }
+      }
+      const lastBarTime = Math.max(
+        0,
+        ...rows.map((r) => r.lastTime),
+        ...[...series.values()].map((s) => s.lastTime)
+      );
+      return {
+        all,
+        scannedCount: all.length, // tüm piyasa
+        dynamicCount: rows.length,
+        advancers: all.filter((c) => c.dayChangePercent > 0).length,
+        decliners: all.filter((c) => c.dayChangePercent < 0).length,
+        lastBarTime,
+      };
+    }
+    // Massive snapshot boş döndüyse Yahoo akışına düş
+  }
+
   const dynamic = await getDynamicSymbols();
-  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic, ...extraSymbols])];
-  const dynamicCount = universe.length - SCAN_UNIVERSE.length;
+  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller
+  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])];
+  const dynamicCount = new Set(dynamic).size;
   const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));
   return {

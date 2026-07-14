@@ -138,7 +138,7 @@ export async function runPulse(
   const notify = options.notify ?? true;
 
   const [dynamic, hot] = await Promise.all([getDynamicSymbols(), getHotSymbols(db)]);
-  const universe = [...new Set([...SCAN_UNIVERSE, ...dynamic, ...hot])];
+  const universe = [...new Set([...dynamic, ...hot, ...SCAN_UNIVERSE])];
   const spark = await fetchSpark(universe);
 
   const empty: PulseResult = {

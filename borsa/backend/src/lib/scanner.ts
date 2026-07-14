@@ -5,7 +5,7 @@
 
 import { getCandles } from './data';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
-import { massiveConfigured, massiveMovers, massiveSeriesFor } from './massive';
+import { massiveConfigured, massiveMovers, massiveSeriesFor, massiveBroadRows } from './massive';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -217,7 +217,64 @@ export interface MarketSnapshot {
 /** Tüm evreni tarar; manuel tarama, otonom bot ve nabız dedektörü bu görüntüyü kullanır.
  *  extraSymbols: sıcak sembol hafızası (son günlerin kazananları / nabız alarmları)
  *  gibi kaynaklardan gelen ek izleme sembolleri. */
+// Momentum zenginleştirmesi için en iyi kaç aday aggregates ile çekilsin
+// (alt-istek bütçesi altında kalmalı — Cloudflare ücretsiz plan ~50).
+const ENRICH_TOP = 40;
+
 export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSnapshot> {
+  // MASSIVE: tüm piyasa tek snapshot'tan; momentum yalnızca en iyi adaylarda
+  // aggregates ile zenginleştirilir (geniş kapsama + bütçe dostu).
+  if (massiveConfigured()) {
+    const rows = await massiveBroadRows();
+    if (rows.length) {
+      const all: ScanCandidate[] = rows.map((r) => ({
+        symbol: r.symbol,
+        price: r.price,
+        dayChangePercent: r.dayChangePercent,
+        gapPercent: r.gapPercent,
+        momentumPercent: 0, // broad pass: momentum yok
+        rangePercent: r.rangePercent,
+        relativeVolume: null,
+        direction: r.dayChangePercent >= 0 ? 'long' : 'short',
+        score: Math.abs(r.dayChangePercent) + r.rangePercent * 0.5,
+      }));
+      const byId = new Map(all.map((c) => [c.symbol, c]));
+
+      // En hareketli adaylar + izlenen ek semboller → gerçek momentum/hacim
+      const top = [...all].sort((a, b) => b.score - a.score).slice(0, ENRICH_TOP);
+      const enrichSyms = [
+        ...new Set([...top.map((c) => c.symbol), ...extraSymbols.map((s) => s.toUpperCase())]),
+      ];
+      const series = await fetchSpark(enrichSyms);
+      for (const [sym, s] of series) {
+        const en = analyze(sym, s);
+        const existing = byId.get(sym);
+        if (existing) {
+          existing.momentumPercent = en.momentumPercent;
+          existing.price = en.price;
+          existing.score = en.score;
+        } else {
+          byId.set(sym, en);
+          all.push(en);
+        }
+      }
+      const lastBarTime = Math.max(
+        0,
+        ...rows.map((r) => r.lastTime),
+        ...[...series.values()].map((s) => s.lastTime)
+      );
+      return {
+        all,
+        scannedCount: all.length, // tüm piyasa
+        dynamicCount: rows.length,
+        advancers: all.filter((c) => c.dayChangePercent > 0).length,
+        decliners: all.filter((c) => c.dayChangePercent < 0).length,
+        lastBarTime,
+      };
+    }
+    // Massive snapshot boş döndüyse Yahoo akışına düş
+  }
+
   const dynamic = await getDynamicSymbols();
   // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller
   const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])];

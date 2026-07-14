@@ -68,6 +68,46 @@ export async function massiveSnapshotMap(): Promise<Map<string, SnapTicker>> {
 
 const SYMBOL_RE = /^[A-Z]{1,5}$/;
 
+export interface MassiveBroadRow {
+  symbol: string;
+  price: number;
+  dayChangePercent: number;
+  gapPercent: number;
+  rangePercent: number;
+  lastTime: number; // unix saniye
+}
+
+/**
+ * Tüm piyasayı tek snapshot'tan aday satırlarına çevirir (per-symbol çağrı YOK).
+ * Momentum burada yok (snapshot gün içi pencere vermez) — çağıran, en iyi adayları
+ * aggregates ile zenginleştirir. Böylece geniş kapsama alt-istek bütçesine takılmaz.
+ */
+export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
+  const map = await massiveSnapshotMap();
+  const rows: MassiveBroadRow[] = [];
+  for (const t of map.values()) {
+    const price = t.lastTrade?.p ?? t.day?.c ?? t.min?.c;
+    const prev = t.prevDay?.c;
+    if (!SYMBOL_RE.test(t.ticker)) continue;
+    if (typeof price !== 'number' || price < 3) continue;
+    if (typeof prev !== 'number' || prev <= 0) continue;
+    if (typeof t.todaysChangePerc !== 'number') continue;
+    if ((t.day?.v ?? 0) < 100_000) continue; // likidite tabanı
+    const o = t.day?.o ?? price;
+    const h = t.day?.h ?? price;
+    const l = t.day?.l ?? price;
+    rows.push({
+      symbol: t.ticker.toUpperCase(),
+      price,
+      dayChangePercent: t.todaysChangePerc,
+      gapPercent: ((o - prev) / prev) * 100,
+      rangePercent: ((h - l) / prev) * 100,
+      lastTime: t.min?.t ? Math.floor(t.min.t / 1000) : Math.floor(Date.now() / 1000),
+    });
+  }
+  return rows;
+}
+
 /** Tüm piyasadan hareketli sembolleri seç (dinamik evren): |günlük değişim| + likidite. */
 export async function massiveMovers(limit: number): Promise<string[]> {
   const map = await massiveSnapshotMap();

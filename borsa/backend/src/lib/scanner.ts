@@ -217,15 +217,16 @@ export interface MarketSnapshot {
 /** Tüm evreni tarar; manuel tarama, otonom bot ve nabız dedektörü bu görüntüyü kullanır.
  *  extraSymbols: sıcak sembol hafızası (son günlerin kazananları / nabız alarmları)
  *  gibi kaynaklardan gelen ek izleme sembolleri. */
-// Momentum zenginleştirmesi için en iyi kaç aday aggregates ile çekilsin
-// (alt-istek bütçesi altında kalmalı — Cloudflare ücretsiz plan ~50).
-const ENRICH_TOP = 40;
+// Momentum zenginleştirmesi için en iyi kaç aday aggregates ile çekilsin.
+// Cloudflare ücretsiz plan istek başına ~50 alt-istek verir; trader döngüsü
+// aynı çağrıda istihbarat + fiyat de yaptığından bu düşük tutulur (bütçe payı).
+const ENRICH_TOP = 15;
 
 export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSnapshot> {
   // MASSIVE: tüm piyasa tek snapshot'tan; momentum yalnızca en iyi adaylarda
   // aggregates ile zenginleştirilir (geniş kapsama + bütçe dostu).
   if (massiveConfigured()) {
-    const rows = await massiveBroadRows();
+    const rows = await massiveBroadRows().catch(() => [] as Awaited<ReturnType<typeof massiveBroadRows>>);
     if (rows.length) {
       const all: ScanCandidate[] = rows.map((r) => ({
         symbol: r.symbol,

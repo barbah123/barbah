@@ -699,14 +699,20 @@ export async function runTraderCycle(
     .bind(portfolioId)
     .all<BotTrade>();
   if (!nearClose) {
-    const entryActions = await findEntries(
-      db,
-      portfolioId,
-      config,
-      snapshot.all,
-      openAfterExits
-    );
-    actions.push(...entryActions.map((a) => a.text));
+    // Giriş analizi (istihbarat + zenginleştirme) alt-istek bütçesini zorlayabilir;
+    // hata verse bile rapor gönderimi engellenmemeli — bu yüzden izole edilir.
+    try {
+      const entryActions = await findEntries(
+        db,
+        portfolioId,
+        config,
+        snapshot.all,
+        openAfterExits
+      );
+      actions.push(...entryActions.map((a) => a.text));
+    } catch (e) {
+      console.error('Giriş analizi hatası (rapor yine gönderilecek):', e);
+    }
   }
 
   // 4. İşlem incelemesi

@@ -59,7 +59,12 @@ export const DEFAULT_BOT_CONFIG = {
 const SESSION_OPEN_MIN = 13 * 60 + 30;
 const SESSION_CLOSE_MIN = 20 * 60;
 const FLATTEN_BEFORE_MIN = 10;
-const DATA_FRESH_SECONDS = 15 * 60;
+// Veri tazeliği: tarama katmanıyla aynı eşik (30 dk). Massive anlık görüntüsünün
+// dakika barı (min.t) tarifeye göre ~15 dk gecikmeli gelebiliyor; 15 dk'lık dar
+// pencere bu gecikmeli beslemeyi "bayat" sayıp her döngüde raporu sessizce
+// atlıyordu (14 Tem: 17:37'den sonra rapor kesildi). Tarama 30 dk'yı taze kabul
+// ediyor — trader de aynı tanımı kullansın ki gecikmeli besleme engel olmasın.
+const DATA_FRESH_SECONDS = 30 * 60;
 // Giriş için gün tavanı: gün +%8'i geçmiş hisse "erken" değildir — tepeden alma
 // (6 Tem seansı: +%17 AXTI, +%14 CRDO, +%12 BE tepeden alınıp hepsi ekside sallandı)
 const MAX_ENTRY_DAY_PCT = 8;

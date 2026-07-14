@@ -14,7 +14,7 @@ import { handleOptions, error, json } from './lib/http';
 import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
 import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
-import { runAllTraders, enterFromPulseAlerts } from './lib/trader';
+import { runAllTraders, runTraderCycle, enterFromPulseAlerts } from './lib/trader';
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
@@ -147,6 +147,34 @@ export default {
           .bind(pf.id, enabled)
           .run();
         return json({ ok: true, portfolio_id: pf.id, enabled: enabled === 1 });
+      }
+
+      // Yönetici tanısı: etkin botların döngüsünü çalıştırıp NEDEN rapor
+      // gitmediğini gör (ran/reported/skippedReason). ?force=1 seans/veri
+      // kapılarını atlar, ?report=1 gerçekten Telegram'a gönderir.
+      if (path === '/api/admin/bot-cycle' && request.method === 'POST') {
+        const force = url.searchParams.get('force') === '1';
+        const report = url.searchParams.get('report') === '1';
+        const { results } = await env.DB
+          .prepare('SELECT portfolio_id FROM bot_config WHERE enabled = 1')
+          .all<{ portfolio_id: string }>();
+        const out: unknown[] = [];
+        for (const row of results) {
+          try {
+            const r = await runTraderCycle(env.DB, env, row.portfolio_id, { force, report });
+            out.push({
+              portfolio_id: row.portfolio_id,
+              ran: r.ran,
+              reported: r.reported,
+              skippedReason: r.skippedReason ?? null,
+              actions: r.actions.length,
+              openTrades: r.openTrades.length,
+            });
+          } catch (e) {
+            out.push({ portfolio_id: row.portfolio_id, error: String(e) });
+          }
+        }
+        return json({ enabledBots: results.length, results: out });
       }
 
       // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.

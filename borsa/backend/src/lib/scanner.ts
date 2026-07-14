@@ -5,6 +5,7 @@
 
 import { getCandles } from './data';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import { massiveConfigured, massiveMovers, massiveSeriesFor } from './massive';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -85,6 +86,9 @@ async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
 }
 
 export async function fetchSpark(symbols: string[]): Promise<Map<string, SparkSeries>> {
+  if (massiveConfigured()) {
+    return massiveSeriesFor(symbols, MAX_SPARK_SYMBOLS);
+  }
   const out = new Map<string, SparkSeries>();
   const targets = [...new Set(symbols)].slice(0, MAX_SPARK_SYMBOLS);
   for (let i = 0; i < targets.length; i += SPARK_CONCURRENCY) {
@@ -159,6 +163,17 @@ const DYNAMIC_TTL_MS = 10 * 60 * 1000;
 export async function getDynamicSymbols(): Promise<string[]> {
   if (dynamicCache && Date.now() - dynamicCache.at < DYNAMIC_TTL_MS) {
     return dynamicCache.symbols;
+  }
+  if (massiveConfigured()) {
+    try {
+      const movers = await massiveMovers(DYNAMIC_MAX);
+      if (movers.length) {
+        dynamicCache = { at: Date.now(), symbols: movers };
+        return movers;
+      }
+    } catch {
+      // Massive erişilemedi: Yahoo screener'a düş
+    }
   }
   const found: string[] = [];
   for (const scrId of ['day_gainers', 'most_actives']) {

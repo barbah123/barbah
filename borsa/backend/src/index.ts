@@ -19,6 +19,7 @@ import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
 import { getQuote } from './lib/data';
+import { setMassiveKey, massiveConfigured, massivePing } from './lib/massive';
 import { botRoutes } from './routes/bot';
 
 export interface Env {
@@ -27,6 +28,8 @@ export interface Env {
   // Telegram bildirimleri (opsiyonel): wrangler secret put ile tanımlanır
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  // Massive (api.massive.com) veri sağlayıcı anahtarı (opsiyonel). Yoksa Yahoo.
+  MASSIVE_API_KEY?: string;
 }
 
 // Tarama cron'u (Telegram bildirimli): açılış sonrası, öğlen, kapanış öncesi
@@ -37,6 +40,7 @@ const TRADER_CRON = '*/10 13-20 * * 1-5';
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return handleOptions();
+    setMassiveKey(env.MASSIVE_API_KEY);
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -75,6 +79,13 @@ export default {
           jobs,
           cronHealthy: newestAge != null && newestAge < 900,
         });
+      }
+
+      // Veri sağlayıcı tanısı: hangi kaynak aktif + Massive testi (anahtar sızdırmaz)
+      if (path === '/api/datasource' && request.method === 'GET') {
+        const provider = massiveConfigured() ? 'massive' : 'yahoo';
+        const ping = massiveConfigured() ? await massivePing() : null;
+        return json({ provider, massiveConfigured: massiveConfigured(), ping });
       }
 
       // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.
@@ -270,6 +281,7 @@ export default {
   //  - 5 dk'lık: açık limit emirlerini doldur + etkin stratejileri çalıştır (sinyal → Telegram)
   //  - tarama: günlük trade adaylarını bul → Telegram bildirimi
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    setMassiveKey(env.MASSIVE_API_KEY);
     ctx.waitUntil(
       (async () => {
         const kind: JobKind =

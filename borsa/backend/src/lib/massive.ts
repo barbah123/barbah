@@ -85,8 +85,11 @@ export interface MassiveBroadRow {
 export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
   const map = await massiveSnapshotMap();
   const rows: MassiveBroadRow[] = [];
+  const firstPos = (...vals: (number | undefined)[]) =>
+    vals.find((v) => typeof v === 'number' && v > 0);
   for (const t of map.values()) {
-    const price = t.lastTrade?.p ?? t.day?.c ?? t.min?.c;
+    // Pre-market'te day.* alanları 0 gelir (null değil) — bu yüzden sıfır-olmayan seç
+    const price = firstPos(t.lastTrade?.p, t.min?.c, t.day?.c);
     const prev = t.prevDay?.c;
     if (!SYMBOL_RE.test(t.ticker)) continue;
     if (typeof price !== 'number' || price < 3) continue;
@@ -95,15 +98,16 @@ export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
     // Likidite: gün hacmi yoksa (pre-market) önceki gün hacmine düş
     const liqVol = t.day?.v && t.day.v > 0 ? t.day.v : t.prevDay?.v ?? 0;
     if (liqVol < 100_000) continue;
-    const o = t.day?.o ?? price;
-    const h = t.day?.h ?? price;
-    const l = t.day?.l ?? price;
+    // Gün OHLC yoksa (pre-market) gap/range hesaplama — 0 bırak
+    const hasDay = (t.day?.o ?? 0) > 0;
+    const gapPercent = hasDay ? ((t.day!.o! - prev) / prev) * 100 : 0;
+    const rangePercent = hasDay ? ((t.day!.h! - t.day!.l!) / prev) * 100 : 0;
     rows.push({
       symbol: t.ticker.toUpperCase(),
       price,
       dayChangePercent: t.todaysChangePerc,
-      gapPercent: ((o - prev) / prev) * 100,
-      rangePercent: ((h - l) / prev) * 100,
+      gapPercent,
+      rangePercent,
       lastTime: t.min?.t ? Math.floor(t.min.t / 1000) : Math.floor(Date.now() / 1000),
     });
   }
@@ -138,7 +142,10 @@ export async function massiveQuote(symbol: string): Promise<Quote | null> {
     );
     const t: SnapTicker | undefined = data?.ticker ?? data?.results;
     if (!t) return null;
-    const price = t.lastTrade?.p ?? t.min?.c ?? t.day?.c;
+    // Pre-market'te day.c = 0 gelir (null değil); sıfır-olmayan ilk fiyatı seç
+    const price = [t.lastTrade?.p, t.min?.c, t.day?.c].find(
+      (v) => typeof v === 'number' && v > 0
+    );
     const prev = t.prevDay?.c;
     if (typeof price !== 'number' || typeof prev !== 'number') return null;
     return {

@@ -46,8 +46,12 @@ export interface SparkSeries {
 // oysa tekil "chart" ucu Worker'dan sorunsuz çalışıyor. Bu yüzden veri, sembol
 // başına chart ile toplanır. Worker alt-istek bütçesine sığmak için tavan var;
 // çağıranlar hareketli hisseleri (dinamik + sıcak) listenin başına koyar.
-const MAX_SPARK_SYMBOLS = 46;
-const SPARK_CONCURRENCY = 10;
+// Massive güvenilir ve hızlı olduğu için tavan yükseltildi (13→90). Alt-istek
+// bütçesi aşılırsa massiveAggregates hata fırlatmadan boş döner (kademeli
+// kısıtlama), yani yüksek tavan çökme riski taşımaz — sadece bütçe elverdiğince
+// sembol taranır.
+const MAX_SPARK_SYMBOLS = 90;
+const SPARK_CONCURRENCY = 12;
 
 async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
   try {
@@ -154,7 +158,7 @@ async function computeRelativeVolume(symbol: string): Promise<number | null> {
 // DİNAMİK EVREN: Yahoo'nun hazır tarayıcılarından (günün en çok yükselenleri +
 // en hacimlileri) sembol çekilir ve sabit evrene eklenir. Böylece "bugün kim
 // oynuyorsa" tarafımızdan taranır. Uç erişilemezse sabit 80 ile devam (fail-open).
-const DYNAMIC_MAX = 60; // Workers istek bütçesi için tavan (evren toplamı ≤ 140)
+const DYNAMIC_MAX = 90; // tüm piyasadan seçilen hareketli sembol tavanı (Massive)
 const SYMBOL_RE = /^[A-Z]{1,5}$/; // ABD hissesi; birim/varant/OTC uzantılarını eler
 
 let dynamicCache: { at: number; symbols: string[] } | null = null;

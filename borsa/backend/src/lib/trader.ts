@@ -614,7 +614,8 @@ function formatReport(
   actions: string[],
   openTrades: BotTrade[],
   priceMap: Map<string, number>,
-  stats: TradeStats
+  stats: TradeStats,
+  closedToday: BotTrade[] = []
 ): string {
   const money = (v: number) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
   const sign = (v: number) => (v >= 0 ? '+' : '-');
@@ -643,6 +644,18 @@ function formatReport(
     }
   } else {
     lines.push('— açık pozisyon yok');
+  }
+
+  // Bugün kapananlar: toplam K/Z'nin nereden geldiği raporda görünsün
+  if (closedToday.length) {
+    lines.push('', `<b>Bugün kapanan işlemler (${closedToday.length}):</b>`);
+    for (const t of closedToday) {
+      const pnl = t.pnl ?? 0;
+      lines.push(
+        `• ${t.symbol} ${t.quantity} adet $${t.entry_price.toFixed(2)}→$${(t.exit_price ?? 0).toFixed(2)} ` +
+          `${sign(pnl)}$${Math.abs(pnl).toFixed(2)} (${t.exit_reason ?? '—'})`
+      );
+    }
   }
 
   if (stats.closedToday > 0) {
@@ -751,6 +764,15 @@ export async function runTraderCycle(
   let reported = false;
   let report: string | undefined;
   if (options.report) {
+    // Bugün (UTC) kapanan işlemler raporda listelensin — "Toplam K/Z nereden
+    // geldi?" sorusu rapordan cevaplanabilsin (16 Tem kullanıcı geri bildirimi).
+    const { results: closedToday } = await db
+      .prepare(
+        `SELECT * FROM bot_trades WHERE portfolio_id = ? AND status = 'closed'
+         AND closed_at >= date('now') ORDER BY closed_at ASC LIMIT 20`
+      )
+      .bind(portfolioId)
+      .all<BotTrade>();
     report = formatReport(
       equity,
       fresh?.cash ?? 0,
@@ -759,9 +781,27 @@ export async function runTraderCycle(
       actions,
       openTrades,
       priceMap,
-      stats
+      stats,
+      closedToday
     );
-    if (telegramConfigured(env)) reported = await sendTelegram(env, report);
+    if (telegramConfigured(env)) {
+      reported = await sendTelegram(env, report);
+      // Tek yeniden deneme: geçici ağ/limit hatasında raporu sessizce yutma
+      if (!reported) reported = await sendTelegram(env, report);
+    }
+    // Gözlemlenebilirlik: son rapor denemesinin sonucu kalp atışına yazılır
+    // (id=4 → /api/health'te trader_report olarak görünür). Hangi döngülerin
+    // rapor üretip gönderemediğini teşhis etmek için.
+    try {
+      await db
+        .prepare(
+          "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (4, ?, datetime('now'))"
+        )
+        .bind(reported ? 'ok' : 'fail')
+        .run();
+    } catch {
+      // tanı kaydı asıl akışı engellemesin
+    }
   }
 
   return { ran: true, actions, openTrades, stats, reported, report };

@@ -167,7 +167,7 @@ export default {
               ran: r.ran,
               reported: r.reported,
               skippedReason: r.skippedReason ?? null,
-              actions: r.actions.length,
+              actions: r.actions,
               openTrades: r.openTrades.length,
             });
           } catch (e) {
@@ -175,6 +175,23 @@ export default {
           }
         }
         return json({ enabledBots: results.length, results: out });
+      }
+
+      // Yönetici tanısı: son bot işlemleri (kapanan + açık) — raporda görünmeyen
+      // gün içi işlem geçmişini incelemek için. ?hours=48 ile pencere ayarlanır.
+      if (path === '/api/admin/trades' && request.method === 'GET') {
+        const hours = Math.min(720, Math.max(1, Number(url.searchParams.get('hours')) || 48));
+        const { results } = await env.DB
+          .prepare(
+            `SELECT symbol, quantity, entry_price, exit_price, pnl, status,
+                    entry_reason, exit_reason, opened_at, closed_at
+             FROM bot_trades
+             WHERE opened_at >= datetime('now', ?)
+             ORDER BY opened_at DESC LIMIT 100`
+          )
+          .bind(`-${hours} hours`)
+          .all();
+        return json({ hours, trades: results });
       }
 
       // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.

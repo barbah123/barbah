@@ -28,6 +28,8 @@ export interface Env {
   // Kendine servis bağlantısı (wrangler.toml [[services]]): tick her işi ayrı
   // alt-çağrıda, taze alt-istek bütçesiyle çalıştırsın diye
   SELF?: Fetcher;
+  // İç zamanlayıcı (Durable Object alarmı) — dış cron'lara bağımlılığı kaldırır
+  SCHEDULER?: DurableObjectNamespace;
   // Telegram bildirimleri (opsiyonel): wrangler secret put ile tanımlanır
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
@@ -40,8 +42,63 @@ const SCAN_CRON = '40 13,17,19 * * 1-5';
 // Otonom trader döngüsü: seans boyunca her 10 dakikada (analiz+risk+giriş/çıkış+rapor)
 const TRADER_CRON = '*/10 13-20 * * 1-5';
 
+// ---- İç zamanlayıcı (Durable Object alarmı) ----
+// CF cron tetikleyicileri iki kez sessizce durdu (10 ve 17 Tem), GitHub
+// schedule ise saatlerce hiç ateşlemeyebiliyor. DO alarmı Cloudflare'ın
+// garantili zamanlayıcısıdır: kaçırılan alarm yeniden denenir ve her vuruş
+// kendini 5 dk sonrasına yeniden kurar. Kurulum (arm) idempotenttir; sağlık
+// kontrolü, tick ve her deploy sonrası otomatik kurulur.
+const ALARM_INTERVAL_MS = 5 * 60 * 1000;
+
+export class Scheduler {
+  private state: DurableObjectState;
+  private env: Env;
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+  // Her çağrı alarmı garanti eder; kuruluysa dokunmaz (idempotent)
+  async fetch(_req: Request): Promise<Response> {
+    let next = await this.state.storage.getAlarm();
+    if (next == null) {
+      next = Date.now() + 10_000;
+      await this.state.storage.setAlarm(next);
+    }
+    return new Response(JSON.stringify({ armed: true, nextAlarmInSeconds: Math.round((next - Date.now()) / 1000) }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  async alarm(): Promise<void> {
+    // Önce yeniden kur: iş hata verse bile zincir kopmaz
+    await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
+    const d = new Date();
+    const day = d.getUTCDay();
+    const hour = d.getUTCHours();
+    // Yalnızca ABD seansı civarı (hafta içi 13-21 UTC); gece boşa vurmasın
+    if (day === 0 || day === 6 || hour < 13 || hour > 21) return;
+    // Tick, işleri SELF üzerinden ayrı alt-çağrılarda (taze bütçeyle) dağıtır;
+    // atomik kilit CF cron'u geri gelirse bile çift çalışmayı önler.
+    if (this.env.SELF) {
+      await this.env.SELF.fetch('https://internal/api/cron/tick', {
+        method: 'POST',
+        headers: { 'X-Tick-Source': 'alarm' },
+      });
+    }
+  }
+}
+
+// Alarmın kurulu olduğunu garanti et (arka planda, yanıtı geciktirmeden)
+function armScheduler(env: Env): Promise<Response> | null {
+  if (!env.SCHEDULER) return null;
+  try {
+    return env.SCHEDULER.get(env.SCHEDULER.idFromName('main')).fetch('https://internal/arm');
+  } catch {
+    return null;
+  }
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === 'OPTIONS') return handleOptions();
     setMassiveKey(env.MASSIVE_API_KEY);
 
@@ -50,6 +107,21 @@ export default {
 
     // API dışındaki her şey web arayüzü (public/)
     if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
+
+    // Sağlık kontrolü ve tick her uğradığında iç zamanlayıcı garanti kurulur
+    if (path === '/api/health' || path === '/api/cron/tick') {
+      const armed = armScheduler(env);
+      if (armed) ctx.waitUntil(armed);
+    }
+
+    // İç zamanlayıcı tanısı/kurulumu: alarm durumunu döndürür
+    if (path === '/api/cron/arm' && (request.method === 'POST' || request.method === 'GET')) {
+      const armed = armScheduler(env);
+      if (!armed) return json({ armed: false, reason: 'SCHEDULER bağlantısı yok' });
+      return new Response(await (await armed).text(), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
 
     try {
       // Portföyden bağımsız piyasa uçları
@@ -203,6 +275,8 @@ export default {
       // alt-istek bütçesini alır. Aynı istekte cycle+trader koşmak bütçeyi
       // tüketip Telegram gönderimini düşürüyordu (17 Tem: trader_report=fail).
       if (path === '/api/cron/tick' && request.method === 'POST') {
+        // Kaynak izi: iç alarm mı, dış dürtü (GitHub/manuel) mü — health'te görünür
+        const source = request.headers.get('X-Tick-Source') === 'alarm' ? 'alarm' : 'tick';
         const d = new Date();
         const inScanWindow =
           [13, 17, 19].includes(d.getUTCHours()) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
@@ -213,9 +287,10 @@ export default {
         for (const kind of kinds) {
           if (env.SELF) {
             try {
-              const res = await env.SELF.fetch('https://internal/api/cron/run-one?kind=' + kind, {
-                method: 'POST',
-              });
+              const res = await env.SELF.fetch(
+                `https://internal/api/cron/run-one?kind=${kind}&source=${source}`,
+                { method: 'POST' }
+              );
               const body = (await res.json()) as { ran?: boolean };
               if (body.ran) ran.push(kind);
               continue;
@@ -224,7 +299,7 @@ export default {
             }
           }
           // Bağlantı yoksa/düştüyse eski davranış: aynı istekte çalıştır
-          if (await runScheduledJob(env, kind, 'tick')) ran.push(kind);
+          if (await runScheduledJob(env, kind, source)) ran.push(kind);
         }
         return json({ ok: true, ran });
       }
@@ -234,7 +309,8 @@ export default {
       if (path === '/api/cron/run-one' && request.method === 'POST') {
         const kind = url.searchParams.get('kind') as JobKind | null;
         if (!kind || !(kind in JOB_IDS)) return error('Geçersiz iş türü');
-        const ran = await runScheduledJob(env, kind, 'tick');
+        const source = url.searchParams.get('source') === 'alarm' ? 'alarm' : 'tick';
+        const ran = await runScheduledJob(env, kind, source);
         return json({ ok: true, ran });
       }
 
@@ -418,6 +494,8 @@ export default {
   //  - tarama: günlük trade adaylarını bul → Telegram bildirimi
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     setMassiveKey(env.MASSIVE_API_KEY);
+    const armed = armScheduler(env);
+    if (armed) ctx.waitUntil(armed);
     ctx.waitUntil(
       (async () => {
         const kind: JobKind =

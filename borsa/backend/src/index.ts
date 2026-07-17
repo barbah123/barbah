@@ -25,6 +25,9 @@ import { botRoutes } from './routes/bot';
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  // Kendine servis bağlantısı (wrangler.toml [[services]]): tick her işi ayrı
+  // alt-çağrıda, taze alt-istek bütçesiyle çalıştırsın diye
+  SELF?: Fetcher;
   // Telegram bildirimleri (opsiyonel): wrangler secret put ile tanımlanır
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
@@ -196,15 +199,42 @@ export default {
 
       // Yedek tetikleyici: CF cron'ları durursa dışarıdan çağrılır.
       // Tür bazlı asgari aralık korumaları çift çalışmayı ve kötüye kullanımı sınırlar.
+      // Her iş SELF üzerinden ayrı alt-çağrıda koşar: her alt-çağrı kendi 50
+      // alt-istek bütçesini alır. Aynı istekte cycle+trader koşmak bütçeyi
+      // tüketip Telegram gönderimini düşürüyordu (17 Tem: trader_report=fail).
       if (path === '/api/cron/tick' && request.method === 'POST') {
-        const ran: string[] = [];
-        if (await runScheduledJob(env, 'cycle', 'tick')) ran.push('cycle');
-        if (await runScheduledJob(env, 'trader', 'tick')) ran.push('trader');
-        // Tarama yalnızca kendi pencerelerinde (13:40/17:40/19:40 UTC ± 5 dk)
         const d = new Date();
         const inScanWindow =
           [13, 17, 19].includes(d.getUTCHours()) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
-        if (inScanWindow && (await runScheduledJob(env, 'scan', 'tick'))) ran.push('scan');
+        const kinds: JobKind[] = inScanWindow
+          ? ['scan', 'trader', 'cycle']
+          : ['trader', 'cycle'];
+        const ran: string[] = [];
+        for (const kind of kinds) {
+          if (env.SELF) {
+            try {
+              const res = await env.SELF.fetch('https://internal/api/cron/run-one?kind=' + kind, {
+                method: 'POST',
+              });
+              const body = (await res.json()) as { ran?: boolean };
+              if (body.ran) ran.push(kind);
+              continue;
+            } catch (e) {
+              console.error(`SELF alt-çağrısı düştü (${kind}), yerinde çalıştırılıyor:`, e);
+            }
+          }
+          // Bağlantı yoksa/düştüyse eski davranış: aynı istekte çalıştır
+          if (await runScheduledJob(env, kind, 'tick')) ran.push(kind);
+        }
+        return json({ ok: true, ran });
+      }
+
+      // İç uç: tek bir zamanlanmış işi çalıştır (tick'in SELF alt-çağrısı).
+      // runScheduledJob'daki atomik kilit çift çalışmayı burada da önler.
+      if (path === '/api/cron/run-one' && request.method === 'POST') {
+        const kind = url.searchParams.get('kind') as JobKind | null;
+        if (!kind || !(kind in JOB_IDS)) return error('Geçersiz iş türü');
+        const ran = await runScheduledJob(env, kind, 'tick');
         return json({ ok: true, ran });
       }
 

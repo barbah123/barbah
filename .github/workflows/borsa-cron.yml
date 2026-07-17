@@ -9,9 +9,13 @@ name: Borsa Cron Tick
 on:
   schedule:
     # ABD seansı (UTC 13:30-20:00, hafta içi). GitHub cron 5 dk çözünürlük;
-    # gerçek tetikleme birkaç dk gecikebilir — Worker guard'ı bunu tolere eder.
-    - cron: "*/5 13-20 * * 1-5"
-    - cron: "0,30 20 * * 1-5"   # kapanış civarı birkaç ek dürtü
+    # gerçek tetikleme gecikebilir/atlanabilir — Worker guard'ı bunu tolere eder.
+    # Not: :00/:05 gibi "yuvarlak" dakikalar GitHub'da en yoğun/en çok atlanan
+    # dilimler (16-17 Tem: koşumlar saatte 1'e düştü, 17 Tem sabahı hiç yok).
+    # Kaydırılmış dakikalar (2-57/5) kuyruğa daha az takılır.
+    - cron: "2-57/5 13-20 * * 1-5"
+    - cron: "17,47 13-20 * * 1-5"  # ikinci hat: farklı dakikalarda yedek dürtü
+    - cron: "2,32 20 * * 1-5"      # kapanış civarı ek dürtü
   workflow_dispatch:
 
 # Aynı anda tek koşum; üst üste binmeyi engelle

@@ -324,10 +324,11 @@ async function findEntries(
     ];
   }
 
-  // Öğle yatayı: bu saatlerde düzenli döngü girişleri kapalı (nabız girişleri açık)
+  // Öğle yatayı: bu saatlerde düzenli döngü girişleri kapalı (nabız girişleri açık).
+  // Raporda görünür olsun — "neden işlem önerilmiyor" sorusu cevapsız kalmasın.
   const nowMin = nowMinutesUtc();
   if (nowMin >= CHOP_START_MIN && nowMin < CHOP_END_MIN) {
-    return [];
+    return [{ text: '🌤 Öğle yatayı (18:30–21:00 TSİ): yeni giriş aranmıyor, nabız girişleri açık' }];
   }
 
   const portfolio = await db
@@ -420,6 +421,24 @@ async function findEntries(
     }, intelNotes);
     if (res.action) actions.push(res.action);
     portfolio.cash -= res.spent;
+  }
+
+  // Huni şeffaflığı: hiç aday kalmadıysa raporda NEDENİ görünsün (20 Tem:
+  // "hiç işlem önermedi" — kaç aday hangi filtrede elendi bilinmiyordu).
+  if (!picks.length) {
+    const band = candidates.filter(
+      (c) =>
+        c.direction === 'long' &&
+        c.dayChangePercent >= 1.5 &&
+        c.dayChangePercent <= MAX_ENTRY_DAY_PCT &&
+        !held.has(c.symbol)
+    );
+    const withData = band.filter((c) => c.relativeVolume != null);
+    actions.push({
+      text:
+        `🔍 Giriş taraması: gün bandında (%1.5–8) ${band.length} aday, ` +
+        `momentum verili ${withData.length}, momentum bandını (%1.5–4) geçen ${shortlist.length} — koşul oluşmadı`,
+    });
   }
   return actions;
 }

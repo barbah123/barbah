@@ -74,6 +74,7 @@ export interface MassiveBroadRow {
   dayChangePercent: number;
   gapPercent: number;
   rangePercent: number;
+  liquidity: number; // gün hacmi (pre-market'te önceki gün hacmi)
   lastTime: number; // unix saniye
 }
 
@@ -108,6 +109,7 @@ export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
       dayChangePercent: t.todaysChangePerc,
       gapPercent,
       rangePercent,
+      liquidity: liqVol,
       lastTime: t.min?.t ? Math.floor(t.min.t / 1000) : Math.floor(Date.now() / 1000),
     });
   }

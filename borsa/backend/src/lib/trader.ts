@@ -696,27 +696,35 @@ export async function runTraderCycle(
   // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
   const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
   const snapshot = await scanMarket(hotSymbols);
-  const dataFresh = Date.now() / 1000 - snapshot.lastBarTime < DATA_FRESH_SECONDS;
-  if (!dataFresh && !options.force) {
-    return { ...empty, skippedReason: 'Veri bayat (tatil/kesinti olabilir), işlem yapılmadı' };
-  }
+  // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
+  // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu
+  // (20 Tem: seans ortasında 2 döngü sessiz geçti). Portföy durumu raporu
+  // bayat fiyatla da anlamlıdır; sadece alım-satım kararları taze veri ister.
+  const dataFresh =
+    Date.now() / 1000 - snapshot.lastBarTime < DATA_FRESH_SECONDS || Boolean(options.force);
 
   const actions: string[] = [];
+  if (!dataFresh) {
+    actions.push('⚠️ Veri bayat (kaynak gecikmesi/kesinti) — bu döngüde işlem yapılmadı');
+  }
 
-  // 2. Risk yönetimi (+ gün sonu kapama)
+  // 2. Risk yönetimi (+ gün sonu kapama) — bayat fiyatla stop/hedef tetiklemek
+  // yanlış çıkışlara yol açar; veri tazeyken çalışır
   const nearClose =
     inSession && minutes >= SESSION_CLOSE_MIN - FLATTEN_BEFORE_MIN && config.flatten_eod === 1;
-  const exitActions = await manageOpenTrades(db, portfolioId, config, {
-    flattenAll: nearClose,
-  });
-  actions.push(...exitActions.map((a) => a.text));
+  if (dataFresh) {
+    const exitActions = await manageOpenTrades(db, portfolioId, config, {
+      flattenAll: nearClose,
+    });
+    actions.push(...exitActions.map((a) => a.text));
+  }
 
-  // 3. Girişler (kapanışa yakınsa yeni pozisyon açma)
+  // 3. Girişler (kapanışa yakınsa veya veri bayatsa yeni pozisyon açma)
   const { results: openAfterExits } = await db
     .prepare("SELECT * FROM bot_trades WHERE portfolio_id = ? AND status = 'open'")
     .bind(portfolioId)
     .all<BotTrade>();
-  if (!nearClose) {
+  if (!nearClose && dataFresh) {
     // Giriş analizi (istihbarat + zenginleştirme) alt-istek bütçesini zorlayabilir;
     // hata verse bile rapor gönderimi engellenmemeli — bu yüzden izole edilir.
     try {
@@ -821,6 +829,16 @@ export async function runAllTraders(
       await runTraderCycle(db, env, row.portfolio_id, options);
     } catch (e) {
       console.error(`Bot döngüsü hatası (${row.portfolio_id}):`, e);
+      // Sessiz kaybolma yok: rapor denemesine ulaşamayan döngü de iz bıraksın
+      // (/api/health → trader_report: error)
+      if (options.report) {
+        await db
+          .prepare(
+            "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (4, 'error', datetime('now'))"
+          )
+          .run()
+          .catch(() => {});
+      }
     }
   }
   return results.length;

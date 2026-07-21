@@ -501,11 +501,15 @@ export default {
       (async () => {
         const kind: JobKind =
           event.cron === SCAN_CRON ? 'scan' : event.cron === TRADER_CRON ? 'trader' : 'cycle';
-        // İş, SELF üzerinden HTTP alt-çağrısında koşar: cron (scheduled)
-        // bağlamındaki koşumlar bugün defalarca iz bırakmadan yarıda kesildi
-        // (21 Tem 18:20-19:10 TSİ: 6 döngü, sıfır rapor damgası); HTTP
-        // bağlamındaki koşumlar ise istisnasız tamamlandı. Ayrıca alt-çağrı
-        // kendi 50 alt-istek bütçesini alır.
+        // TRADER cron'dan koşmaz: cron (scheduled) bağlamının ~30 sn'lik ömrü,
+        // uzun süren trader döngüsünü hata bile fırlatamadan kesiyor (21 Tem:
+        // 22:20-22:50 TSİ koşumları öldü, gün sonu kapanışı yarım kaldı, TSLL
+        // gecede açık kaldı). Trader'ı sabırlı tetikleyiciler çalıştırır: DO
+        // alarmı (15 dk'ya kadar bekleyebilir) ve GitHub tick'i. Cron burada
+        // yalnızca alarmın kurulu olduğunu garantiler (yukarıda armScheduler) —
+        // alarm zinciri kopmuşsa en geç 5 dk içinde yeniden kurulur.
+        if (kind === 'trader') return;
+        // Kısa işler (cycle/scan) SELF üzerinden taze bütçeyle koşar
         if (env.SELF) {
           try {
             await env.SELF.fetch(`https://internal/api/cron/run-one?kind=${kind}&source=cron`, {

@@ -712,6 +712,16 @@ export async function runTraderCycle(
     return { ...empty, skippedReason: 'Piyasa kapalı (ABD seansı dışı)' };
   }
 
+  // Başlangıç izi (id=5): koşum yarıda kesilirse bile "denendi" kaydı kalır.
+  // trader_attempt > trader_report ise koşumlar rapora ulaşamadan ölüyor demektir
+  // (21 Tem: cron bağlamındaki koşumlar iz bırakmadan kesildi — teşhis için).
+  if (options.report) {
+    await db
+      .prepare("INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (5, 'start', datetime('now'))")
+      .run()
+      .catch(() => {});
+  }
+
   // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
   const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
   const snapshot = await scanMarket(hotSymbols);

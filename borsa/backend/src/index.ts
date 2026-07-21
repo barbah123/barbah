@@ -139,7 +139,7 @@ export default {
         const { results } = await env.DB
           .prepare('SELECT id, cron, at FROM cron_heartbeat')
           .all<{ id: number; cron: string; at: string }>();
-        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report' };
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt' };
         const jobs: Record<string, unknown> = {};
         let newestAge: number | null = null;
         for (const r of results) {
@@ -309,7 +309,8 @@ export default {
       if (path === '/api/cron/run-one' && request.method === 'POST') {
         const kind = url.searchParams.get('kind') as JobKind | null;
         if (!kind || !(kind in JOB_IDS)) return error('Geçersiz iş türü');
-        const source = url.searchParams.get('source') === 'alarm' ? 'alarm' : 'tick';
+        const sp = url.searchParams.get('source');
+        const source = sp === 'alarm' || sp === 'cron' ? sp : 'tick';
         const ran = await runScheduledJob(env, kind, source);
         return json({ ok: true, ran });
       }
@@ -500,6 +501,21 @@ export default {
       (async () => {
         const kind: JobKind =
           event.cron === SCAN_CRON ? 'scan' : event.cron === TRADER_CRON ? 'trader' : 'cycle';
+        // İş, SELF üzerinden HTTP alt-çağrısında koşar: cron (scheduled)
+        // bağlamındaki koşumlar bugün defalarca iz bırakmadan yarıda kesildi
+        // (21 Tem 18:20-19:10 TSİ: 6 döngü, sıfır rapor damgası); HTTP
+        // bağlamındaki koşumlar ise istisnasız tamamlandı. Ayrıca alt-çağrı
+        // kendi 50 alt-istek bütçesini alır.
+        if (env.SELF) {
+          try {
+            await env.SELF.fetch(`https://internal/api/cron/run-one?kind=${kind}&source=cron`, {
+              method: 'POST',
+            });
+            return;
+          } catch (e) {
+            console.error(`SELF alt-çağrısı düştü (cron ${kind}), yerinde çalıştırılıyor:`, e);
+          }
+        }
         await runScheduledJob(env, kind, `cron:${event.cron}`);
       })()
     );

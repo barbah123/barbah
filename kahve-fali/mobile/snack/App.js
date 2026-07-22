@@ -9,10 +9,21 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
-import * as Speech from 'expo-speech';
+
+// expo-speech'i tembel yükle: Snack paketleyicisi modülü getiremezse uygulama yine açılsın.
+let _speech;
+function getSpeech() {
+  if (_speech !== undefined) return _speech;
+  try {
+    _speech = require('expo-speech');
+  } catch {
+    _speech = null;
+  }
+  return _speech;
+}
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.6.0';
+const APP_VERSION = 'v1.6.1';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -309,12 +320,19 @@ function Home({ onSettings, onHistory, onResult }) {
 function Reading({ reading, onBack }) {
   const [speaking, setSpeaking] = useState(false);
 
-  useEffect(() => { return () => { Speech.stop(); }; }, []);
+  useEffect(() => {
+    return () => { const S = getSpeech(); if (S) S.stop(); };
+  }, []);
 
   function toggleSpeak() {
-    if (speaking) { Speech.stop(); setSpeaking(false); return; }
+    const S = getSpeech();
+    if (!S) {
+      Alert.alert('Sesli okuma hazır değil', 'Ses modülü yüklenemedi. Snack sayfasını kapatıp yeniden açmayı dene; sorun sürerse tam uygulamada çalışır.');
+      return;
+    }
+    if (speaking) { S.stop(); setSpeaking(false); return; }
     setSpeaking(true);
-    Speech.speak(reading.result, {
+    S.speak(reading.result, {
       language: 'tr-TR', rate: 0.98, pitch: 1.0,
       onDone: () => setSpeaking(false), onStopped: () => setSpeaking(false), onError: () => setSpeaking(false),
     });

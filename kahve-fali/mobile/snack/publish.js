@@ -40,7 +40,7 @@ const { Snack } = require('snack-sdk');
     dependencies: {
       'expo-image-picker': { version: '17.0.11' },
       'expo-clipboard': { version: '8.0.8' },
-      'expo-speech': { version: '8.5.0' },
+      'expo-speech': { version: '14.0.8' },
     },
     user: { accessToken: token },
   });

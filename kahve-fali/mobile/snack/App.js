@@ -9,9 +9,10 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
 
 const BASE_URL = 'https://kahve-fali-api.barbah.workers.dev';
-const APP_VERSION = 'v1.5.0';
+const APP_VERSION = 'v1.6.0';
 const KEY_RE = /^sk-[A-Za-z0-9_-]{20,}$/;
 
 const C = {
@@ -306,6 +307,19 @@ function Home({ onSettings, onHistory, onResult }) {
 }
 
 function Reading({ reading, onBack }) {
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => { return () => { Speech.stop(); }; }, []);
+
+  function toggleSpeak() {
+    if (speaking) { Speech.stop(); setSpeaking(false); return; }
+    setSpeaking(true);
+    Speech.speak(reading.result, {
+      language: 'tr-TR', rate: 0.98, pitch: 1.0,
+      onDone: () => setSpeaking(false), onStopped: () => setSpeaking(false), onError: () => setSpeaking(false),
+    });
+  }
+
   return (
     <SafeAreaView style={styles.flex}>
       <TopBar title="Falın" onBack={onBack} />
@@ -317,6 +331,9 @@ function Reading({ reading, onBack }) {
             <Text style={styles.qText}>{reading.question}</Text>
           </View>
         ) : null}
+        <Pressable style={[styles.speakBtn, speaking && styles.speakBtnActive]} onPress={toggleSpeak}>
+          <Text style={[styles.speakText, speaking && styles.speakTextActive]}>{speaking ? '⏹  Durdur' : '🔊  Sesli Dinle'}</Text>
+        </Pressable>
         <View style={styles.resultCard}><Text style={styles.result}>{reading.result}</Text></View>
         <Text style={styles.meta}>
           {reading.type === 'photo' ? '📷 Fotoğraflı' : '✍️ Yazılı'} · {reading.model} · {formatDateTime(reading.created_at)}
@@ -595,6 +612,10 @@ const styles = StyleSheet.create({
   qBox: { backgroundColor: C.card2, borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   qLabel: { color: C.sub, fontSize: 12, fontWeight: '700', marginBottom: 4 },
   qText: { color: C.text, fontSize: 15, fontStyle: 'italic' },
+  speakBtn: { backgroundColor: C.card2, borderWidth: 1, borderColor: C.primary, borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 16 },
+  speakBtnActive: { backgroundColor: C.primary, borderColor: C.primary },
+  speakText: { color: C.accent, fontSize: 16, fontWeight: '800' },
+  speakTextActive: { color: C.primaryText },
   resultCard: { backgroundColor: C.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: C.border },
   result: { color: C.text, fontSize: 16, lineHeight: 26 },
   meta: { color: C.sub, fontSize: 12, textAlign: 'center', marginTop: 18 },

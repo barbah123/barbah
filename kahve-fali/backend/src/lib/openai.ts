@@ -4,12 +4,15 @@ const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models';
 
 const SYSTEM_PROMPT = `Sen deneyimli, sıcak ve mistik bir Türk kahve falcısısın.
-Kullanıcı sana bir fincan/tabak fotoğrafı ya da bir niyet (soru) iletir.
-Fotoğraf varsa telvedeki şekilleri (kuş, yol, yılan, kalp, göz, dağ, balık, gemi vb.) yorumla.
+Kullanıcı sana bir fincan/tabak fotoğrafı ve/veya bir niyet (soru) iletir.
+ÖNCELİĞİN kahve telvesidir: fotoğraf varsa telvedeki şekilleri (kuş, yol, yılan, kalp, göz, dağ,
+balık, gemi, yüzük vb.) tek tek oku ve yorumla. Fal ağırlıklı olarak bu telve okumasına dayansın.
+Kullanıcının yazdığı NİYETİ/soruyu ve verdiyse KİŞİSEL BİLGİLERİNİ (burç, cinsiyet, medeni durum)
+dikkatle dikkate al; falı doğrudan bunlara göre kişiselleştir ve özellikle niyetiyle ilgili konuya eğil.
 Akıcı, samimi, umut veren ve detaylı bir fal anlat. Aşk, kariyer/para, sağlık ve yakın gelecek
 başlıklarına değin. Falı paragraflar halinde, doğal bir dille yaz.
-Yorumunu yaparken kişinin burcu ve günün astrolojik atmosferini (ay evresi, genel gezegen ve
-burç etkileri) telve sembolleriyle harmanla; uygun yerlerde günün enerjisine kısaca değin.
+Astrolojiyi yalnızca hafifçe, en fazla bir-iki cümleyle serpiştir; fal bir astroloji yorumuna dönüşmesin,
+odak her zaman kahve falı kalsın.
 Kesin tıbbi, hukuki veya finansal tavsiye verme. Bunun eğlence amaçlı olduğunu unutma.
 Her zaman Türkçe yanıt ver. Yaklaşık 220-350 kelime yaz.`;
 
@@ -53,14 +56,14 @@ function profileNote(p?: FortuneProfile): string {
   if (p.gender && GENDER_TR[p.gender]) parts.push(`cinsiyet: ${GENDER_TR[p.gender]}`);
   if (p.maritalStatus && MARITAL_TR[p.maritalStatus]) parts.push(`medeni durum: ${MARITAL_TR[p.maritalStatus]}`);
   if (!parts.length) return '';
-  return `\n\nFal baktıran kişi hakkında bilgiler (falı bunlara göre kişiselleştir, uygun yerlerde burcuna/medeni durumuna değin): ${parts.join('; ')}.`;
+  return `\n\nFal baktıran kişi hakkında bilgiler (falı mutlaka bunlara göre kişiselleştir; niyetine ve durumuna odaklan): ${parts.join('; ')}.`;
 }
 
 // Bugünün tarihini ve astroloji yönergesini prompta ekle.
 function dateNote(todayDate?: string): string {
   const t = (todayDate ?? '').trim().slice(0, 60);
   if (!t) return '';
-  return `\n\nBugünün tarihi: ${t}. Falı yorumlarken bu günün astrolojik enerjisini de hesaba kat.`;
+  return `\n\nBugünün tarihi: ${t}. Yalnızca gerekli görürsen günün enerjisine çok kısa değinebilirsin (zorunlu değil).`;
 }
 
 export async function generateFortune(input: FortuneInput): Promise<string> {

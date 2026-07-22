@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Speech from 'expo-speech';
 import { Reading } from '../api';
 import { colors, formatDateTime } from '../theme';
 
@@ -11,6 +13,32 @@ export default function ReadingScreen({
   onBack: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [speaking, setSpeaking] = useState(false);
+
+  // Ekrandan çıkarken sesi durdur.
+  useEffect(() => {
+    return () => {
+      Speech.stop();
+    };
+  }, []);
+
+  function toggleSpeak() {
+    if (speaking) {
+      Speech.stop();
+      setSpeaking(false);
+      return;
+    }
+    setSpeaking(true);
+    Speech.speak(reading.result, {
+      language: 'tr-TR',
+      rate: 0.98,
+      pitch: 1.0,
+      onDone: () => setSpeaking(false),
+      onStopped: () => setSpeaking(false),
+      onError: () => setSpeaking(false),
+    });
+  }
+
   return (
     <View style={[styles.flex, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -29,6 +57,15 @@ export default function ReadingScreen({
             <Text style={styles.questionText}>{reading.question}</Text>
           </View>
         ) : null}
+
+        <Pressable
+          style={[styles.speakBtn, speaking && styles.speakBtnActive]}
+          onPress={toggleSpeak}
+        >
+          <Text style={[styles.speakText, speaking && styles.speakTextActive]}>
+            {speaking ? '⏹  Durdur' : '🔊  Sesli Dinle'}
+          </Text>
+        </Pressable>
 
         <View style={styles.card}>
           <Text style={styles.result}>{reading.result}</Text>
@@ -68,6 +105,18 @@ const styles = StyleSheet.create({
   },
   questionLabel: { color: colors.sub, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
   questionText: { color: colors.text, fontSize: 15, fontStyle: 'italic' },
+  speakBtn: {
+    backgroundColor: colors.card2,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  speakBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  speakText: { color: colors.accent, fontSize: 16, fontWeight: '800' },
+  speakTextActive: { color: colors.primaryText },
   card: {
     backgroundColor: colors.card,
     borderRadius: 16,

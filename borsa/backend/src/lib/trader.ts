@@ -65,9 +65,11 @@ const FLATTEN_BEFORE_MIN = 10;
 // atlıyordu (14 Tem: 17:37'den sonra rapor kesildi). Tarama 30 dk'yı taze kabul
 // ediyor — trader de aynı tanımı kullansın ki gecikmeli besleme engel olmasın.
 const DATA_FRESH_SECONDS = 30 * 60;
-// Giriş için gün tavanı: gün +%8'i geçmiş hisse "erken" değildir — tepeden alma
-// (6 Tem seansı: +%17 AXTI, +%14 CRDO, +%12 BE tepeden alınıp hepsi ekside sallandı)
-const MAX_ENTRY_DAY_PCT = 8;
+// Giriş için gün tavanı: günün büyük kısmını koşmuş hisse "erken" değildir —
+// tepeden alma (6 Tem: +%17 AXTI, +%14 CRDO, +%12 BE hepsi ekside sallandı).
+// 22 Tem: 8→6 (kullanıcı kararı) — tavana en yakın giriş PLBL +%7.99 en sert
+// stop yiyendi; en büyük kazananlar %4.6-6.7 bandından geldi.
+const MAX_ENTRY_DAY_PCT = 6;
 // Günlük zarar freni: gün içi gerçekleşen zarar özkaynağın bu yüzdesini aşarsa
 // o gün yeni pozisyon açılmaz (çıkış/stop yönetimi çalışmaya devam eder).
 // 6 Tem dersi: bot her stop sonrası slotu hemen doldurup kanamayı büyüttü.
@@ -436,7 +438,7 @@ async function findEntries(
     const withData = band.filter((c) => c.relativeVolume != null);
     actions.push({
       text:
-        `🔍 Giriş taraması: gün bandında (%1.5–8) ${band.length} aday, ` +
+        `🔍 Giriş taraması: gün bandında (%1.5–${MAX_ENTRY_DAY_PCT}) ${band.length} aday, ` +
         `momentum verili ${withData.length}, momentum bandını (%1.5–4) geçen ${shortlist.length} — koşul oluşmadı`,
     });
   }

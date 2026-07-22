@@ -243,7 +243,7 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
 
       // Zenginleştirme bütçesi ikiye bölünür (20 Tem dersi: bütçenin tamamı ham
       // skora gidince hep +%30..%200'lük dev hareketliler seçiliyordu; bunlar
-      // giriş tavanını (%8) zaten aşar. Giriş bandındaki (%1.5-8) adaylar ise
+      // giriş tavanını zaten aşar. Giriş bandındaki (%1.5-6) adaylar ise
       // momentum verisi alamayıp filtrede eleniyordu → bot HİÇ giriş bulamıyordu):
       // 1) En yüksek skorlular (tarama mesajı/kısa yön için)
       // 2) Giriş bandındaki en likit adaylar (botun gerçekten alabilecekleri)
@@ -251,7 +251,8 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
       const top = [...all].sort((a, b) => b.score - a.score).slice(0, SCORE_TOP);
       const topSet = new Set(top.map((c) => c.symbol));
       const entryBand = rows
-        .filter((r) => r.dayChangePercent >= 1.5 && r.dayChangePercent <= 8 && !topSet.has(r.symbol))
+        // Bant, trader'daki MAX_ENTRY_DAY_PCT ile uyumlu tutulur (22 Tem: 8→6)
+        .filter((r) => r.dayChangePercent >= 1.5 && r.dayChangePercent <= 6 && !topSet.has(r.symbol))
         .sort((a, b) => b.liquidity - a.liquidity)
         .slice(0, ENRICH_TOP - top.length);
       const enrichSyms = [

@@ -305,39 +305,62 @@ export async function manageOpenTrades(
   return actions;
 }
 
-/** 3. adım: giriş kararları + pozisyon büyüklüğü. */
-async function findEntries(
+// Giriş planı: yalnızca D1 + bellek kullanır (ağ isteği YOK) — rapor
+// gönderilmeden önce güvenle çalışır. İstihbarat + emir (ağ ağırlıklı kısım)
+// executeEntryPlan'a ayrıldı ve rapor gönderildikten SONRA koşar; böylece
+// yoğun döngülerde alt-istek bütçesi biterse kurban rapor değil giriş avı
+// olur (24 Tem: 3 girişli döngüde bütçe doldu, rapor gönderilemedi).
+interface EntryPlan {
+  shortlist: ScanCandidate[];
+  slots: number; // plan anındaki boş pozisyon yuvası
+  equity: number;
+  cash: number;
+  preActions: CycleAction[]; // fren/yatay/huni satırları — ana rapora girer
+}
+
+const NO_PLAN = (preActions: CycleAction[]): EntryPlan => ({
+  shortlist: [],
+  slots: 0,
+  equity: 0,
+  cash: 0,
+  preActions,
+});
+
+/** 3a. adım: giriş kısa listesi + huni şeffaflığı (ağ isteği yok). */
+async function planEntries(
   db: D1Database,
   portfolioId: string,
   config: BotConfig,
   candidates: ScanCandidate[],
   openTrades: BotTrade[]
-): Promise<CycleAction[]> {
+): Promise<EntryPlan> {
   const slots = config.max_positions - openTrades.length;
-  if (slots <= 0) return [];
+  if (slots <= 0) return NO_PLAN([]);
 
   // Günlük zarar freni
   const brake = await dailyLossBrake(db, portfolioId);
   if (brake.tripped) {
-    return [
+    return NO_PLAN([
       {
         text: `🛑 Günlük zarar freni: bugün gerçekleşen K/Z -$${Math.abs(brake.realized).toFixed(0)} (limit -$${brake.limit.toFixed(0)}) — bugün yeni giriş yok`,
       },
-    ];
+    ]);
   }
 
   // Öğle yatayı: bu saatlerde düzenli döngü girişleri kapalı (nabız girişleri açık).
   // Raporda görünür olsun — "neden işlem önerilmiyor" sorusu cevapsız kalmasın.
   const nowMin = nowMinutesUtc();
   if (nowMin >= CHOP_START_MIN && nowMin < CHOP_END_MIN) {
-    return [{ text: '🌤 Öğle yatayı (18:30–21:00 TSİ): yeni giriş aranmıyor, nabız girişleri açık' }];
+    return NO_PLAN([
+      { text: '🌤 Öğle yatayı (18:30–21:00 TSİ): yeni giriş aranmıyor, nabız girişleri açık' },
+    ]);
   }
 
   const portfolio = await db
     .prepare('SELECT cash FROM portfolios WHERE id = ?')
     .bind(portfolioId)
     .first<{ cash: number }>();
-  if (!portfolio) return [];
+  if (!portfolio) return NO_PLAN([]);
 
   const { results: positions } = await db
     .prepare('SELECT symbol, quantity, avg_cost FROM positions WHERE portfolio_id = ?')
@@ -385,7 +408,39 @@ async function findEntries(
     .sort((a, b) => entryRank(b) - entryRank(a))
     .slice(0, slots * 2); // istihbarat elemesi için genişçe kısa liste
 
+  // Huni şeffaflığı: raporda her döngü kaç adayın hangi filtrede kaldığı görünür
+  // (20 Tem: "hiç işlem önermedi" — kaç aday nerede elendi bilinmiyordu).
+  const band = candidates.filter(
+    (c) =>
+      c.direction === 'long' &&
+      c.dayChangePercent >= 1.5 &&
+      c.dayChangePercent <= MAX_ENTRY_DAY_PCT &&
+      !held.has(c.symbol)
+  );
+  const withData = band.filter((c) => c.relativeVolume != null);
+  const funnel =
+    `🔍 Giriş taraması: gün bandında (%1.5–${MAX_ENTRY_DAY_PCT}) ${band.length} aday, ` +
+    `momentum verili ${withData.length}, momentum bandını (%1.5–4) geçen ${shortlist.length}` +
+    (shortlist.length
+      ? ' — istihbarat değerlendirmesi sonrası girişler ayrıca bildirilecek'
+      : ' — koşul oluşmadı');
+
+  return { shortlist, slots, equity, cash: portfolio.cash, preActions: [{ text: funnel }] };
+}
+
+/** 3b. adım: istihbarat + emir (ağ ağırlıklı) — rapor gönderildikten sonra koşar. */
+async function executeEntryPlan(
+  db: D1Database,
+  portfolioId: string,
+  config: BotConfig,
+  plan: EntryPlan
+): Promise<CycleAction[]> {
+  const { shortlist } = plan;
+  if (!shortlist.length) return [];
+  const entryRank = (c: ScanCandidate) =>
+    c.momentumPercent * 2 - Math.max(0, c.dayChangePercent - 4);
   const actions: CycleAction[] = [];
+  let cash = plan.cash;
 
   // İstihbarat katmanı: haber + bilanço + Reddit + Stocktwits
   // (Reddit haritası tek istekte gelir, sembol başına ekstra maliyeti yok)
@@ -412,35 +467,17 @@ async function findEntries(
   }
 
   cleared.sort((a, b) => entryRank(b.pick) + b.boost - (entryRank(a.pick) + a.boost));
-  const picks = cleared.slice(0, slots);
+  const picks = cleared.slice(0, plan.slots);
 
   for (const { pick, intelNotes } of picks) {
-    const res = await executeEntry(db, portfolioId, config, equity, portfolio.cash, {
+    const res = await executeEntry(db, portfolioId, config, plan.equity, cash, {
       symbol: pick.symbol,
       price: pick.price,
       momentumPercent: pick.momentumPercent,
       dayChangePercent: pick.dayChangePercent,
     }, intelNotes);
     if (res.action) actions.push(res.action);
-    portfolio.cash -= res.spent;
-  }
-
-  // Huni şeffaflığı: hiç aday kalmadıysa raporda NEDENİ görünsün (20 Tem:
-  // "hiç işlem önermedi" — kaç aday hangi filtrede elendi bilinmiyordu).
-  if (!picks.length) {
-    const band = candidates.filter(
-      (c) =>
-        c.direction === 'long' &&
-        c.dayChangePercent >= 1.5 &&
-        c.dayChangePercent <= MAX_ENTRY_DAY_PCT &&
-        !held.has(c.symbol)
-    );
-    const withData = band.filter((c) => c.relativeVolume != null);
-    actions.push({
-      text:
-        `🔍 Giriş taraması: gün bandında (%1.5–${MAX_ENTRY_DAY_PCT}) ${band.length} aday, ` +
-        `momentum verili ${withData.length}, momentum bandını (%1.5–4) geçen ${shortlist.length} — koşul oluşmadı`,
-    });
+    cash -= res.spent;
   }
   return actions;
 }
@@ -750,25 +787,21 @@ export async function runTraderCycle(
     actions.push(...exitActions.map((a) => a.text));
   }
 
-  // 3. Girişler (kapanışa yakınsa veya veri bayatsa yeni pozisyon açma)
+  // 3a. Giriş planı (yalnızca D1 + bellek — rapor öncesi güvenli). İstihbarat
+  // ve emirler (ağ ağırlıklı) rapor gönderildikten SONRA koşar: yoğun döngüde
+  // alt-istek bütçesi biterse kurban rapor olmasın (24 Tem: 3 girişli döngüde
+  // bütçe doldu, rapor gidemedi).
   const { results: openAfterExits } = await db
     .prepare("SELECT * FROM bot_trades WHERE portfolio_id = ? AND status = 'open'")
     .bind(portfolioId)
     .all<BotTrade>();
+  let entryPlan: EntryPlan | null = null;
   if (!nearClose && dataFresh) {
-    // Giriş analizi (istihbarat + zenginleştirme) alt-istek bütçesini zorlayabilir;
-    // hata verse bile rapor gönderimi engellenmemeli — bu yüzden izole edilir.
     try {
-      const entryActions = await findEntries(
-        db,
-        portfolioId,
-        config,
-        snapshot.all,
-        openAfterExits
-      );
-      actions.push(...entryActions.map((a) => a.text));
+      entryPlan = await planEntries(db, portfolioId, config, snapshot.all, openAfterExits);
+      actions.push(...entryPlan.preActions.map((a) => a.text));
     } catch (e) {
-      console.error('Giriş analizi hatası (rapor yine gönderilecek):', e);
+      console.error('Giriş planı hatası (rapor yine gönderilecek):', e);
     }
   }
 
@@ -840,6 +873,23 @@ export async function runTraderCycle(
         .run();
     } catch {
       // tanı kaydı asıl akışı engellemesin
+    }
+  }
+
+  // 3b. Girişleri uygula (rapor güvende — artık bütçe riski alınabilir).
+  // Gerçekleşen girişler/engeller ayrı, kısa bir Telegram mesajıyla bildirilir.
+  if (entryPlan && entryPlan.shortlist.length) {
+    try {
+      const entryActions = await executeEntryPlan(db, portfolioId, config, entryPlan);
+      actions.push(...entryActions.map((a) => a.text));
+      if (options.report && entryActions.length && telegramConfigured(env)) {
+        await sendTelegram(
+          env,
+          ['🤖 <b>Giriş Kararları</b>', ...entryActions.map((a) => a.text)].join('\n')
+        );
+      }
+    } catch (e) {
+      console.error('Giriş uygulama hatası:', e);
     }
   }
 

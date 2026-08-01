@@ -35,6 +35,7 @@ new_sqlite_classes = ["Scheduler"]
 #    açık limit emirleri işle + stratejileri çalıştır (sinyaller Telegram'a gider)
 # 2) Günde 3 kez (açılış sonrası, öğlen, kapanış öncesi): day-trade taraması → Telegram
 # 3) Her 10 dakikada: otonom trader döngüsü (analiz+risk+giriş/çıkış) + Telegram raporu
-#    (SCAN_CRON / TRADER_CRON sabitleri src/index.ts içinde — birlikte değiştirin)
+# 4) 7/24 her 10 dakikada: altın FTREND bekçisi (asıl tetik DO alarmı; bu yedek)
+#    (SCAN_CRON / TRADER_CRON / GOLD_CRON sabitleri src/index.ts içinde — birlikte değiştirin)
 [triggers]
-crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5", "*/10 13-20 * * 1-5"]
+crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5", "*/10 13-20 * * 1-5", "*/10 * * * *"]

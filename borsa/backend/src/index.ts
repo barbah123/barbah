@@ -18,6 +18,7 @@ import { runAllTraders, runTraderCycle, enterFromPulseAlerts } from './lib/trade
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
+import { runGoldWatch, getGoldWatch, GOLDWATCH_INTERVALS } from './lib/goldwatch';
 import { getQuote } from './lib/data';
 import { setMassiveKey, massiveConfigured, massivePing } from './lib/massive';
 import { botRoutes } from './routes/bot';
@@ -41,6 +42,8 @@ export interface Env {
 const SCAN_CRON = '40 13,17,19 * * 1-5';
 // Otonom trader döngüsü: seans boyunca her 10 dakikada (analiz+risk+giriş/çıkış+rapor)
 const TRADER_CRON = '*/10 13-20 * * 1-5';
+// Altın bekçisi yedeği: 7/24 (altın Pzt-Cum ~24 saat işlem görür; asıl tetik DO alarmı)
+const GOLD_CRON = '*/10 * * * *';
 
 // ---- İç zamanlayıcı (Durable Object alarmı) ----
 // CF cron tetikleyicileri iki kez sessizce durdu (10 ve 17 Tem), GitHub
@@ -71,11 +74,9 @@ export class Scheduler {
   async alarm(): Promise<void> {
     // Önce yeniden kur: iş hata verse bile zincir kopmaz
     await this.state.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
-    const d = new Date();
-    const day = d.getUTCDay();
-    const hour = d.getUTCHours();
-    // Yalnızca ABD seansı civarı (hafta içi 13-21 UTC); gece boşa vurmasın
-    if (day === 0 || day === 6 || hour < 13 || hour > 21) return;
+    // Alarm 7/24 vurur: altın (GC=F) Pzt-Cum neredeyse 24 saat işlem görür.
+    // Hangi işlerin koşacağını tick saate göre seçer (ABD işleri seans içi,
+    // altın bekçisi her zaman; piyasa kapalıysa bekçi bayat veriyi görüp sessiz geçer).
     // Tick, işleri SELF üzerinden ayrı alt-çağrılarda (taze bütçeyle) dağıtır;
     // atomik kilit CF cron'u geri gelirse bile çift çalışmayı önler.
     if (this.env.SELF) {
@@ -279,11 +280,16 @@ export default {
         // Kaynak izi: iç alarm mı, dış dürtü (GitHub/manuel) mü — health'te görünür
         const source = request.headers.get('X-Tick-Source') === 'alarm' ? 'alarm' : 'tick';
         const d = new Date();
+        // Altın bekçisi her vuruşta; ABD işleri yalnızca seans penceresinde
+        // (hafta içi 13-21 UTC — alarmın eski kapısı buraya taşındı)
+        const day = d.getUTCDay();
+        const hour = d.getUTCHours();
+        const inUsSession = day >= 1 && day <= 5 && hour >= 13 && hour <= 21;
         const inScanWindow =
-          [13, 17, 19].includes(d.getUTCHours()) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
-        const kinds: JobKind[] = inScanWindow
-          ? ['scan', 'trader', 'cycle']
-          : ['trader', 'cycle'];
+          inUsSession &&
+          [13, 17, 19].includes(hour) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
+        const kinds: JobKind[] = ['gold'];
+        if (inUsSession) kinds.push(...(inScanWindow ? (['scan', 'trader', 'cycle'] as JobKind[]) : (['trader', 'cycle'] as JobKind[])));
         const ran: string[] = [];
         for (const kind of kinds) {
           if (env.SELF) {
@@ -321,6 +327,59 @@ export default {
         const notify = request.method === 'POST' && url.searchParams.get('notify') !== '0';
         const result = await runScan(env, { notify, db: env.DB });
         return json(result);
+      }
+
+      // Altın FTREND bekçisi: durum + yapılandırma + manuel koşu
+      if (path === '/api/goldwatch' && request.method === 'GET') {
+        const cfg = await getGoldWatch(env.DB);
+        return json({ goldwatch: cfg });
+      }
+      if (path === '/api/goldwatch' && request.method === 'PATCH') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const sets: string[] = [];
+        const binds: unknown[] = [];
+        if (body.enabled !== undefined) {
+          sets.push('enabled = ?');
+          binds.push(body.enabled ? 1 : 0);
+        }
+        if (body.symbol !== undefined) {
+          const s = String(body.symbol).toUpperCase().trim();
+          if (!s) return error('Sembol boş olamaz');
+          sets.push('symbol = ?');
+          binds.push(s);
+        }
+        if (body.interval !== undefined) {
+          if (!GOLDWATCH_INTERVALS[body.interval])
+            return error(`interval şunlardan biri olmalı: ${Object.keys(GOLDWATCH_INTERVALS).join(', ')}`);
+          sets.push('interval = ?');
+          binds.push(body.interval);
+        }
+        if (body.period !== undefined) {
+          const p = Number(body.period);
+          if (!Number.isInteger(p) || p < 1 || p > 50) return error('period 1-50 arası tamsayı olmalı');
+          sets.push('period = ?');
+          binds.push(p);
+        }
+        if (body.mult !== undefined) {
+          const m = Number(body.mult);
+          if (!Number.isFinite(m) || m < 0.5 || m > 10) return error('mult 0.5-10 arası olmalı');
+          sets.push('mult = ?');
+          binds.push(m);
+        }
+        if (!sets.length) return error('Güncellenecek alan yok');
+        // Ayar değişince durum raporu sayacı sıfırlansın ki yeni kurulum hemen raporlansın
+        sets.push('last_status_at = NULL');
+        await env.DB.prepare(`UPDATE goldwatch SET ${sets.join(', ')} WHERE id = 1`).bind(...binds).run();
+        return json({ goldwatch: await getGoldWatch(env.DB) });
+      }
+      if (path === '/api/goldwatch/run' && request.method === 'POST') {
+        const info = await runGoldWatch(env.DB, env);
+        return json({ ok: true, info });
       }
 
       // Seviye alarmları: listeleme, ekleme, silme
@@ -501,7 +560,13 @@ export default {
     ctx.waitUntil(
       (async () => {
         const kind: JobKind =
-          event.cron === SCAN_CRON ? 'scan' : event.cron === TRADER_CRON ? 'trader' : 'cycle';
+          event.cron === SCAN_CRON
+            ? 'scan'
+            : event.cron === TRADER_CRON
+              ? 'trader'
+              : event.cron === GOLD_CRON
+                ? 'gold'
+                : 'cycle';
         // TRADER cron'dan koşmaz: cron (scheduled) bağlamının ~30 sn'lik ömrü,
         // uzun süren trader döngüsünü hata bile fırlatamadan kesiyor (21 Tem:
         // 22:20-22:50 TSİ koşumları öldü, gün sonu kapanışı yarım kaldı, TSLL
@@ -532,9 +597,14 @@ export default {
 // kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
 // (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
 
-type JobKind = 'cycle' | 'trader' | 'scan';
-const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3 };
-const JOB_MIN_INTERVAL_S: Record<JobKind, number> = { cycle: 240, trader: 540, scan: 10800 };
+type JobKind = 'cycle' | 'trader' | 'scan' | 'gold';
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 4 };
+const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
+  cycle: 240,
+  trader: 540,
+  scan: 10800,
+  gold: 240, // her 5 dk'lık vuruşta koşabilir; sinyal zaten mum kapanışına bağlı
+};
 
 // İş yuvasını atomik olarak sahiplen. Tek bir koşullu UPDATE ile hem "vakti
 // geldi mi" kontrolünü hem de damgalamayı yapar; böylece CF cron'u ile
@@ -576,6 +646,11 @@ export async function runScheduledJob(
     if (kind === 'trader') {
       const count = await runAllTraders(env.DB, env, { report: true });
       console.log(`Trader döngüsü: ${count} bot çalıştı`);
+      return true;
+    }
+    if (kind === 'gold') {
+      const info = await runGoldWatch(env.DB, env);
+      console.log(`Altın bekçisi: ${info}`);
       return true;
     }
     const filled = await processOpenOrders(env.DB);

@@ -124,4 +124,21 @@ trend döner → **AL/SAT sinyali**.
   (örneklem dışı test) ve işlem listesi + güncel trend durumunu döner.
   İşlem başına %0,05 masraf/kayma varsayılır (`fee` parametresiyle değiştirilebilir).
 
+### Altın bekçisi (Telegram raporlu)
+
+Zamanlayıcı **7/24** çalışır (altın Pzt-Cum ~24 saat işlem görür): her vuruşta
+GC=F mumlarını çekip FTREND'i hesaplar. **Trend dönünce anında Telegram'a AL/SAT
+sinyali**, ayrıca **6 saatte bir durum raporu** (fiyat, trend, çizgi seviyesi,
+pencere performansı) gönderir. Sinyaller mum kapanışında kesinleşir; piyasa
+kapalıyken sessizdir.
+
+- `GET /api/goldwatch` — durum ve yapılandırma
+- `PATCH /api/goldwatch` — `{enabled, symbol, interval (15m|30m|1h), period, mult}`
+- `POST /api/goldwatch/run` — manuel koşu (test için)
+
+Varsayılan **1h FTREND(2,3)**: 2,4 yıllık 1h verisinde örneklem dışı doğrulamayı
+geçen kurulum. Aynı 60 günlük pencerede 15m tüm parametrelerde zarar ederken
+(masraf + testere) 1h artıda kaldı — 15m'e geçmek isterseniz
+`PATCH {"interval":"15m"}` yeter, ama veri 1h'ı destekliyor.
+
 > ⚠️ Bu uygulama eğitim/simülasyon amaçlıdır; ürettiği sinyaller yatırım tavsiyesi değildir.

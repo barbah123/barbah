@@ -23,10 +23,12 @@ export const STRATEGY_INFO: Record<
 > = {
   sma_cross: { label: 'SMA Kesişimi', defaults: { fast: 9, slow: 21 } },
   rsi: { label: 'RSI', defaults: { period: 14, buyBelow: 30, sellAbove: 70 } },
-  // Foreks FTREND eşleniği — 1 saatlik grafikte çalışır (ekrandaki kurulum)
+  // Foreks FTREND eşleniği — 1 saatlik grafikte çalışır. Varsayılan (2,3):
+  // GC=F 2,4 yıllık 1h verisinde örneklem dışı doğrulamayı geçen kurulum
+  // (ekrandaki 3,2 eğitimde en iyiydi ama görmediği veride zarar etti).
   ftrend: {
     label: 'FTREND (Trend Takibi)',
-    defaults: { period: 3, mult: 2 },
+    defaults: { period: 2, mult: 3 },
     candles: { interval: '1h', range: '3mo' },
   },
 };

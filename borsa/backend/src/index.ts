@@ -129,7 +129,8 @@ export default {
         path === '/api/quotes' ||
         path === '/api/search' ||
         path === '/api/candles' ||
-        path === '/api/intel'
+        path === '/api/intel' ||
+        path === '/api/ftrend'
       ) {
         return await marketRoutes(request, url);
       }

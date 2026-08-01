@@ -37,7 +37,8 @@ export async function strategyRoutes(
     const symbol = String(body.symbol ?? '').toUpperCase().trim();
     const type = body.type as StrategyType;
     if (!symbol) return error('Sembol gerekli');
-    if (!STRATEGY_INFO[type]) return error('Geçersiz strateji tipi (sma_cross veya rsi)');
+    if (!STRATEGY_INFO[type])
+      return error('Geçersiz strateji tipi (sma_cross, rsi veya ftrend)');
     const quantity = Number(body.quantity ?? 1);
     if (!Number.isFinite(quantity) || quantity <= 0) return error('Adet 0’dan büyük olmalı');
 

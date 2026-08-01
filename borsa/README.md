@@ -108,5 +108,20 @@ Tüm portföy uçları `X-Device-Id` başlığı ister (istemciler otomatik üre
 - `GET/POST/DELETE /api/watchlist`
 - `GET/POST/PATCH/DELETE /api/strategies` · `POST /api/strategies/run` · `GET /api/signals`
 - `GET|POST /api/scan` — day-trade adayı taraması
+- `GET /api/ftrend?symbol=GC=F&interval=1h&range=730d&mode=long` — FTREND optimizasyon + backtest
+
+## FTREND stratejisi (altın / trend takibi)
+
+Foreks'teki **FTREND(periyot, çarpan)** indikatörünün eşleniği: ATR tabanlı iz süren
+stop (SuperTrend ailesi). Yükseliş trendinde fiyatın altında basamaklanan destek,
+düşüş trendinde fiyatın üstünde basamaklanan direnç çizer; kapanış çizgiyi kırınca
+trend döner → **AL/SAT sinyali**.
+
+- **Canlı sinyal**: Stratejiler sekmesinden sembole (örn. altın için `GC=F`) FTREND
+  stratejisi eklenir; cron 1 saatlik mumlarla değerlendirir, sinyaller Telegram'a gider.
+- **Backtest + optimizasyon**: `/api/ftrend` ucu, geçmiş veride (periyot × çarpan)
+  ızgarasını tarar; verinin ilk %70'inde optimize eder, kalan %30'da doğrular
+  (örneklem dışı test) ve işlem listesi + güncel trend durumunu döner.
+  İşlem başına %0,05 masraf/kayma varsayılır (`fee` parametresiyle değiştirilebilir).
 
 > ⚠️ Bu uygulama eğitim/simülasyon amaçlıdır; ürettiği sinyaller yatırım tavsiyesi değildir.

@@ -347,9 +347,21 @@ async function planEntries(
     ]);
   }
 
+  // Açılış ısınması: seansın ilk 45 dakikasında düzenli giriş YOK (nabız
+  // girişleri katalizör şartıyla açık). 27-31 Tem haftası: stop yiyen 20
+  // işlemin ~yarısı ilk 45 dk'da açıldı (-$2.4k) — açılış oynaklığında
+  // "momentum" gürültüden ayrışmıyor, 15 dk veri gecikmesi bunu büyütüyor.
+  // Haftalık defterde geri-test: bu kural neti -$2,583'ten ~-$200'e düzeltirdi.
+  const OPEN_WARMUP_MIN = SESSION_OPEN_MIN + 45;
+  const nowMin = nowMinutesUtc();
+  if (nowMin < OPEN_WARMUP_MIN) {
+    return NO_PLAN([
+      { text: '🌅 Açılış ısınması (ilk 45 dk): yeni giriş aranmıyor, nabız girişleri açık' },
+    ]);
+  }
+
   // Öğle yatayı: bu saatlerde düzenli döngü girişleri kapalı (nabız girişleri açık).
   // Raporda görünür olsun — "neden işlem önerilmiyor" sorusu cevapsız kalmasın.
-  const nowMin = nowMinutesUtc();
   if (nowMin >= CHOP_START_MIN && nowMin < CHOP_END_MIN) {
     return NO_PLAN([
       { text: '🌤 Öğle yatayı (18:30–21:00 TSİ): yeni giriş aranmıyor, nabız girişleri açık' },

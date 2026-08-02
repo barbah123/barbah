@@ -296,7 +296,7 @@ async function refreshOrders() {
 }
 
 // --- Stratejiler ---
-const STRATEGY_LABELS = { sma_cross: 'SMA Kesişimi', rsi: 'RSI' };
+const STRATEGY_LABELS = { sma_cross: 'SMA Kesişimi', rsi: 'RSI', ftrend: 'FTREND (Trend Takibi)' };
 
 async function refreshStrategies() {
   const { strategies } = await api('/api/strategies');
@@ -307,6 +307,7 @@ async function refreshStrategies() {
       <select id="stType">
         <option value="sma_cross">SMA Kesişimi (9/21)</option>
         <option value="rsi">RSI (14, 30/70)</option>
+        <option value="ftrend">FTREND (2, 3) — 1s trend takibi</option>
       </select>
       <input id="stQty" type="number" min="1" step="1" value="1" title="Sinyal başına adet" />
       <label><input id="stAuto" type="checkbox" checked /> Otomatik işle</label>

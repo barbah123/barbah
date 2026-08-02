@@ -3,8 +3,9 @@
 // Yeni strateji eklemek için: tip tanımına ekle, evaluate'e case yaz.
 
 import type { Candle } from './data';
+import { computeFtrend } from './ftrend';
 
-export type StrategyType = 'sma_cross' | 'rsi';
+export type StrategyType = 'sma_cross' | 'rsi' | 'ftrend';
 
 export interface StrategyResult {
   action: 'buy' | 'sell' | 'hold';
@@ -13,10 +14,23 @@ export interface StrategyResult {
 
 export const STRATEGY_INFO: Record<
   StrategyType,
-  { label: string; defaults: Record<string, number> }
+  {
+    label: string;
+    defaults: Record<string, number>;
+    // Stratejinin tercih ettiği mum verisi (yoksa sinyal katmanı 5m/5d kullanır)
+    candles?: { interval: string; range: string };
+  }
 > = {
   sma_cross: { label: 'SMA Kesişimi', defaults: { fast: 9, slow: 21 } },
   rsi: { label: 'RSI', defaults: { period: 14, buyBelow: 30, sellAbove: 70 } },
+  // Foreks FTREND eşleniği — 1 saatlik grafikte çalışır. Varsayılan (2,3):
+  // GC=F 2,4 yıllık 1h verisinde örneklem dışı doğrulamayı geçen kurulum
+  // (ekrandaki 3,2 eğitimde en iyiydi ama görmediği veride zarar etti).
+  ftrend: {
+    label: 'FTREND (Trend Takibi)',
+    defaults: { period: 2, mult: 3 },
+    candles: { interval: '1h', range: '3mo' },
+  },
 };
 
 function sma(values: number[], period: number, endIndex: number): number | null {
@@ -97,6 +111,31 @@ export function evaluate(
       return { action: 'sell', reason: `RSI${period} = ${value.toFixed(1)} (aşırı alım, eşik ${sellAbove})` };
     }
     return { action: 'hold', reason: `RSI${period} = ${value.toFixed(1)} nötr bölgede` };
+  }
+
+  if (type === 'ftrend') {
+    const period = params.period ?? STRATEGY_INFO.ftrend.defaults.period;
+    const mult = params.mult ?? STRATEGY_INFO.ftrend.defaults.mult;
+    const points = computeFtrend(candles, { period, mult });
+    const now = points[points.length - 1];
+    if (!now) return { action: 'hold', reason: 'Yeterli mum verisi yok' };
+    const label = `FTREND(${period},${mult})`;
+    if (now.flip === 'buy') {
+      return {
+        action: 'buy',
+        reason: `${label} yukarı döndü — kapanış ${candles[candles.length - 1].c.toFixed(2)} trend çizgisini (${now.stop.toFixed(2)}) yukarı kırdı`,
+      };
+    }
+    if (now.flip === 'sell') {
+      return {
+        action: 'sell',
+        reason: `${label} aşağı döndü — kapanış ${candles[candles.length - 1].c.toFixed(2)} trend çizgisinin (${now.stop.toFixed(2)}) altına indi`,
+      };
+    }
+    return {
+      action: 'hold',
+      reason: `${label} ${now.trend === 1 ? 'yükseliş' : 'düşüş'} trendinde, çizgi ${now.stop.toFixed(2)}`,
+    };
   }
 
   return { action: 'hold', reason: 'Bilinmeyen strateji' };

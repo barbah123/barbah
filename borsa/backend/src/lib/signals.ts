@@ -3,7 +3,7 @@
 // kaydeder ve auto_execute açıksa doğrulama + aracı yürütme katmanına iletir.
 
 import { getCandles } from './data';
-import { evaluate, type StrategyType } from './strategies';
+import { evaluate, STRATEGY_INFO, type StrategyType } from './strategies';
 import { placeOrder } from './broker';
 import { sendTelegram, type TelegramEnv } from './telegram';
 
@@ -48,14 +48,19 @@ export async function runStrategies(
 
   for (const strategy of strategies) {
     summary.evaluated++;
-    let candles = candleCache.get(strategy.symbol);
+    // Strateji tipi kendi mum aralığını isteyebilir (ör. ftrend 1 saatlik çalışır)
+    const pref = STRATEGY_INFO[strategy.type]?.candles;
+    const interval = pref?.interval ?? '5m';
+    const range = pref?.range ?? '5d';
+    const cacheKey = `${strategy.symbol}:${interval}:${range}`;
+    let candles = candleCache.get(cacheKey);
     if (!candles) {
       try {
-        candles = await getCandles(strategy.symbol, '5m', '5d');
+        candles = await getCandles(strategy.symbol, interval, range);
       } catch {
         continue;
       }
-      candleCache.set(strategy.symbol, candles);
+      candleCache.set(cacheKey, candles);
     }
     if (!candles.length) continue;
 

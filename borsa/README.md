@@ -141,4 +141,23 @@ geçen kurulum. Aynı 60 günlük pencerede 15m tüm parametrelerde zarar ederke
 (masraf + testere) 1h artıda kaldı — 15m'e geçmek isterseniz
 `PATCH {"interval":"15m"}` yeter, ama veri 1h'ı destekliyor.
 
+### Opsiyon simülasyonu (`lib/optionsim.ts`)
+
+FTREND sinyalleriyle opsiyon stratejilerini Black-Scholes yaklaşımıyla simüle
+eder (geçmiş opsiyon fiyatı verisi ücretsiz yok: IV = gerçekleşen oynaklık ×
+1,15; prim başına yön başına %1,5 spread; vade < 7 günde roll). 2,4 yıllık GC=F
+1h verisinde bulgular:
+
+| Yapı (%10 prim tahsisi) | Tüm dönem | Örneklem dışı (son %30, yatay) |
+|---|---|---|
+| 0.5Δ sadece call, 30 gün | **+%106** (maxDD %29) | **−%6** |
+| 0.8Δ sadece call | +%50 (maxDD %21) | −%4 |
+| 0.5Δ call+put | +%0,4 (maxDD %56) | −%5 |
+| Dayanakta FTREND (tam sermaye) | +%62 (maxDD %9,7) | **+%9,9** |
+
+Sonuç: uzun opsiyon yalnızca güçlü trend dönemlerinde öder; yatay piyasada
+theta + spread, dayanağın kendisinde çalışan stratejiyi bile zarara çevirir.
+Call+put simetrisi boğa piyasasında put bacağı yüzünden çöker. Canlı opsiyon
+emri entegrasyonu bu bulgular ışığında bilinçli olarak eklenmedi.
+
 > ⚠️ Bu uygulama eğitim/simülasyon amaçlıdır; ürettiği sinyaller yatırım tavsiyesi değildir.

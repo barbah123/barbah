@@ -123,10 +123,20 @@ ve bulduğunu **Telegram'a giriş/stop/hedef seviyeleriyle** yollar. Kod:
 ### 1. Breakout — sağlam konsolidasyondan çıkış
 
 Önce büyük bir hareket (1 ayda ≥ %20 / 3 ayda ≥ %30 / 6 ayda ≥ %60), sonra
-**sıkı bir baz**: 3-60 günlük konsolidasyon, ADR'ye göre sınırlı derinlik
-(en fazla 3 × ADR, tavan %35), **daralan menzil** (ikinci yarı / ilk yarı ≤ 1.15)
-ve **kuruyan hacim**. Fiyat referans ortalamanın üstünde tutunmalı (kısa bayrak
-10 EMA, orta 20 EMA, uzun baz 50 SMA) ve pivotun atış menzilinde olmalı.
+**sıkı bir baz**: 3-60 günlük konsolidasyon, derinlik en fazla 2,5 × ADR
+(tavan %25), fiyat pivotun 1,5 ADR'sinden (en çok %12) yakınında ve referans
+ortalamanın üstünde tutunuyor (kısa bayrak 10 EMA, orta 20 EMA, uzun baz 50 SMA).
+
+Sıkılık ve hacim kuruması baz uzunluğuna göre farklı ölçülür — kısa bayrakta
+"yarı-yarıya" kıyas 2 barı 1 bara bölmek demektir, gürültüdür:
+
+| | Kısa bayrak (≤ 5 gün) | Uzun baz (> 5 gün) |
+|---|---|---|
+| Sıkılık | son 3 günün menzili ≤ 2,2 × ADR | ikinci yarı / ilk yarı menzili ≤ 1,05 |
+| Hacim | baz hacmi / yükseliş bacağı hacmi ≤ 1,05 | ikinci yarı / ilk yarı hacmi ≤ 1,05 |
+
+Tabloda ve mesajlarda görünen "sıkılık"/"hacim" değerleri o baz için **uygulanan**
+ölçüdür (ikisinde de küçük = sıkı/sakin).
 
 Tetik: **konsolidasyon tepesinin (pivot) kırılışı** — ve kırılış hacimle gelmeli
 (saat eşleşmeli göreli hacim ≥ 1.5x). Pivotun bir ADR'sinden fazla uzaklaşmış

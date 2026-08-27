@@ -288,7 +288,24 @@ export function analyzeDaily(
     const tightness = r1 > 0 ? r2 / r1 : 1;
     const v1 = mean(firstHalf.map((b) => b.v));
     const v2 = mean(secondHalf.map((b) => b.v));
-    const volDryUp = v1 > 0 ? v2 / v1 : 1;
+    const halfDryUp = v1 > 0 ? v2 / v1 : 1;
+
+    // KISA BAYRAK (≤5 gün) ÖLÇÜMÜ: yarı-yarıya kıyas burada 2 barı 1 bara
+    // bölmek demektir — gürültü. Onun yerine mutlak ölçüler kullanılır:
+    //   sıkılık → son günlerin toplam menzili ADR'nin kaç katı
+    //   hacim   → bazın hacmi, yükseliş bacağının hacminin kaç katı
+    // (KK'nin bazda aradığı da budur: koşuya göre sakinleşen hacim.)
+    const shortBase = baseLen <= 5;
+    const lastRangePct = rangePct(after.slice(-3));
+    const runLeg = window.slice(Math.max(0, pivotIdx - 10), pivotIdx);
+    const runVol = mean(runLeg.map((b) => b.v));
+    const baseVol = mean(after.map((b) => b.v));
+    const volVsRun = runVol > 0 ? baseVol / runVol : 1;
+    // Kaydedilen ölçüler, o baz için gerçekten UYGULANAN ölçülerdir: aksi halde
+    // tabloda kullanılmayan bir orana bakıp "bu neden kabul edilmiş?" denir.
+    // İkisinde de küçük = sıkı/sakin.
+    const volDryUp = shortBase ? volVsRun : halfDryUp;
+    const tightMeasure = shortBase && adr > 0 ? lastRangePct / adr : tightness;
 
     // Baz uzadıkça referans ortalama yavaşlar (KK: kısa bayrak 10 EMA,
     // orta 20 EMA, uzun baz 50 SMA ile takip edilir).
@@ -298,25 +315,50 @@ export function analyzeDaily(
     const distPct = ((pivot - price) / price) * 100;
 
     // Derinlik toleransı oynaklığa göre: ADR'si yüksek hisse doğal olarak daha
-    // derin nefes alır, ama %35'i geçen geri çekilme artık bayrak değildir.
-    const maxDepth = Math.min(35, Math.max(8, adr * 3));
+    // derin nefes alır, ama 2,5 ADR'yi (ve %25'i) geçen geri çekilme bayrak
+    // değil düzeltmedir. ADR ölçekli tolerans ÜSTTEN de sınırlanır: 27 Ağu'da
+    // canlı taramada ADR %11 olan MRNA, pivotunun %18 altındayken ve %27
+    // derinlikle "konsolidasyon" sayılıyordu.
+    const maxDepth = Math.min(25, Math.max(8, adr * 2.5));
     const structureOk =
       depthPct <= maxDepth &&
-      tightness <= 1.15 && // menzil genişlemiyor (ideali daralıyor)
+      // menzil daralıyor / sıkı (genişleyen baz kurulum değil)
+      (shortBase ? lastRangePct <= adr * 2.2 : tightness <= 1.05) &&
+      volDryUp <= 1.05 && // hacim kuruyor — KK'nin bazda aradığı asıl teyit
       maLevel > 0 &&
       price >= maLevel * 0.97 && // ortalamanın üstünde tutunuyor
-      distPct <= Math.max(6, adr * 2); // pivot atış menzilinde
+      // Bayrak zirvenin dibinde olur: fiyat pivotun 1,5 ADR'sinden (en çok %12)
+      // uzaktaysa kurulum henüz olgunlaşmamıştır.
+      distPct <= Math.min(12, Math.max(4, adr * 1.5));
 
     if (structureOk) {
       base_.setup = 'breakout';
-      base_.base = { pivot, low, len: baseLen, depthPct, tightness, volDryUp, maRef, maLevel, distPct };
+      base_.base = {
+        pivot,
+        low,
+        len: baseLen,
+        depthPct,
+        tightness: tightMeasure,
+        volDryUp,
+        maRef,
+        maLevel,
+        distPct,
+      };
+      // Sıkılık puanı ölçüye göre normalize edilir: kısa bazda ölçek 0-2,2
+      // (menzil/ADR), uzun bazda 0-1,2 (yarı oranı). Aynı formülü ikisine
+      // uygulamak kısa bayrakları haksız yere cezalandırırdı.
+      const tightScore = shortBase
+        ? Math.max(0, Math.min(25, (2.2 - tightMeasure) * 12))
+        : Math.max(0, Math.min(25, (1.2 - tightMeasure) * 25));
       base_.score =
         Math.min(60, Math.max(g1, g3 / 2, g6 / 4)) + // momentum lideri mi
-        Math.max(0, Math.min(25, (1.2 - tightness) * 25)) + // daralma
+        tightScore + // daralma / sıkılık
         Math.max(0, Math.min(20, (1.1 - volDryUp) * 20)) + // hacim kuruması
         Math.min(15, adr * 2) - // oynaklık (hareket potansiyeli)
         distPct; // pivota uzaklık cezası
-      base_.note = `${baseLen} günlük baz, derinlik %${depthPct.toFixed(1)}`;
+      base_.note =
+        `${baseLen} günlük baz, derinlik %${depthPct.toFixed(1)}, ` +
+        (shortBase ? 'sıkılık = son 3 gün menzili / ADR' : 'sıkılık = ikinci yarı / ilk yarı menzili');
       return base_;
     }
   }

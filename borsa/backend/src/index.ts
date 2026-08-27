@@ -19,6 +19,13 @@ import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
 import { runGoldWatch, getGoldWatch, GOLDWATCH_INTERVALS } from './lib/goldwatch';
+import {
+  runKullamagi,
+  getKKState,
+  getKKWatch,
+  getKKSignals,
+  analyzeSymbol,
+} from './lib/kullamagi';
 import { getQuote } from './lib/data';
 import { setMassiveKey, massiveConfigured, massivePing } from './lib/massive';
 import { botRoutes } from './routes/bot';
@@ -141,7 +148,7 @@ export default {
         const { results } = await env.DB
           .prepare('SELECT id, cron, at FROM cron_heartbeat')
           .all<{ id: number; cron: string; at: string }>();
-        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold' };
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk' };
         const jobs: Record<string, unknown> = {};
         let newestAge: number | null = null;
         for (const r of results) {
@@ -288,7 +295,11 @@ export default {
         const inScanWindow =
           inUsSession &&
           [13, 17, 19].includes(hour) && d.getUTCMinutes() >= 40 && d.getUTCMinutes() < 45;
+        // Kullamägi tarayıcısı seans penceresinden geniş çalışır: açılış öncesi
+        // izleme listesi (08:00 NY) ve kapanış sonrası derin tarama da lazım.
+        const inKkWindow = day >= 1 && day <= 5 && hour >= 11 && hour <= 22;
         const kinds: JobKind[] = ['gold'];
+        if (inKkWindow) kinds.push('kk');
         if (inUsSession) kinds.push(...(inScanWindow ? (['scan', 'trader', 'cycle'] as JobKind[]) : (['trader', 'cycle'] as JobKind[])));
         const ran: string[] = [];
         for (const kind of kinds) {
@@ -380,6 +391,84 @@ export default {
       if (path === '/api/goldwatch/run' && request.method === 'POST') {
         const info = await runGoldWatch(env.DB, env);
         return json({ ok: true, info });
+      }
+
+      // ---- Kullamägi kurulum tarayıcısı ----
+      // Durum: yapılandırma + izlenen kurulumlar + son sinyaller
+      if (path === '/api/kk' && request.method === 'GET') {
+        const [state, watch, signals] = await Promise.all([
+          getKKState(env.DB),
+          getKKWatch(env.DB, Math.min(100, Number(url.searchParams.get('limit')) || 40)),
+          getKKSignals(env.DB, 30),
+        ]);
+        return json({ state, watch, signals });
+      }
+      // Yapılandırma: eşikleri (fiyat/likidite/gap/derin tarama hızı) ayarla
+      if (path === '/api/kk' && request.method === 'PATCH') {
+        let body: any;
+        try {
+          body = await request.json();
+        } catch {
+          return error('Geçersiz istek gövdesi');
+        }
+        const sets: string[] = [];
+        const binds: unknown[] = [];
+        const num = (
+          key: string,
+          column: string,
+          minV: number,
+          maxV: number,
+          integer = false
+        ): string | null => {
+          if (body[key] === undefined) return null;
+          const v = Number(body[key]);
+          if (!Number.isFinite(v) || v < minV || v > maxV || (integer && !Number.isInteger(v))) {
+            return `${key} ${minV}-${maxV} arası ${integer ? 'tamsayı' : 'sayı'} olmalı`;
+          }
+          sets.push(`${column} = ?`);
+          binds.push(v);
+          return null;
+        };
+        if (body.enabled !== undefined) {
+          sets.push('enabled = ?');
+          binds.push(body.enabled ? 1 : 0);
+        }
+        for (const err of [
+          num('min_price', 'min_price', 0.5, 100),
+          num('min_dollar_vol', 'min_dollar_vol', 100_000, 1_000_000_000),
+          num('min_gap_pct', 'min_gap_pct', 2, 100),
+          num('refresh_batch', 'refresh_batch', 1, 30, true),
+          num('universe_max', 'universe_max', 20, 3000, true),
+        ]) {
+          if (err) return error(err);
+        }
+        if (!sets.length) return error('Güncellenecek alan yok');
+        await env.DB
+          .prepare(`UPDATE kk_state SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = 1`)
+          .bind(...binds)
+          .run();
+        return json({ state: await getKKState(env.DB) });
+      }
+      // Manuel koşu: ?force=1 seans/veri kapılarını atlar, ?notify=0 Telegram'sız
+      if (path === '/api/kk/run' && request.method === 'POST') {
+        const batchParam = Number(url.searchParams.get('batch'));
+        const result = await runKullamagi(env.DB, env, {
+          force: url.searchParams.get('force') === '1',
+          notify: url.searchParams.get('notify') !== '0',
+          refreshBatch:
+            Number.isInteger(batchParam) && batchParam >= 0 && batchParam <= 30
+              ? batchParam
+              : undefined,
+        });
+        return json(result);
+      }
+      // Tek sembol tanısı: kurulum neden var / neden yok
+      if (path === '/api/kk/analyze' && request.method === 'GET') {
+        const symbol = (url.searchParams.get('symbol') ?? '').trim();
+        if (!symbol) return error('symbol parametresi gerekli');
+        const analysis = await analyzeSymbol(env.DB, symbol);
+        if (!analysis) return error('Yeterli günlük veri yok', 404);
+        return json({ analysis });
       }
 
       // Seviye alarmları: listeleme, ekleme, silme
@@ -597,16 +686,19 @@ export default {
 // kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
 // (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
 
-type JobKind = 'cycle' | 'trader' | 'scan' | 'gold';
+type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk';
 // DİKKAT: id 4 ve 5 tanı kayıtlarına ayrılmıştır (4=trader_report, 5=trader_attempt,
 // trader.ts yazar). Altın işi id 4'ü kullanınca rapor izinin üstüne yazıyordu
 // (3 Ağu: trader_report kaynağı "alarm" görünüyordu) — altın 6'ya taşındı.
-const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6 };
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7 };
 const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
   cycle: 240,
   trader: 540,
   scan: 10800,
   gold: 240, // her 5 dk'lık vuruşta koşabilir; sinyal zaten mum kapanışına bağlı
+  // Kullamägi tarayıcısı: her 5 dk'lık vuruşta bir tur (tetikler canlı fiyattan,
+  // derin tarama dönerek ilerler — bkz. lib/kullamagi.ts bütçe mimarisi)
+  kk: 240,
 };
 
 // İş yuvasını atomik olarak sahiplen. Tek bir koşullu UPDATE ile hem "vakti
@@ -654,6 +746,15 @@ export async function runScheduledJob(
     if (kind === 'gold') {
       const info = await runGoldWatch(env.DB, env);
       console.log(`Altın bekçisi: ${info}`);
+      return true;
+    }
+    if (kind === 'kk') {
+      const r = await runKullamagi(env.DB, env);
+      console.log(
+        `Kullamägi: ${r.phase}, evren ${r.universe}, derin ${r.refreshed}, ` +
+          `kurulum ${r.watchCount}, sinyal ${r.signals.length} (telegram ${r.notified})` +
+          (r.watchlistSent ? ', izleme listesi gönderildi' : '')
+      );
       return true;
     }
     const filled = await processOpenOrders(env.DB);

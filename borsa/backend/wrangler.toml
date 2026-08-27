@@ -36,6 +36,8 @@ new_sqlite_classes = ["Scheduler"]
 # 2) Günde 3 kez (açılış sonrası, öğlen, kapanış öncesi): day-trade taraması → Telegram
 # 3) Her 10 dakikada: otonom trader döngüsü (analiz+risk+giriş/çıkış) + Telegram raporu
 # 4) 7/24 her 10 dakikada: altın FTREND bekçisi (asıl tetik DO alarmı; bu yedek)
+# 5) Kullamägi kurulum tarayıcısı CF cron'u KULLANMAZ: DO alarmı → /api/cron/tick
+#    yolundan hafta içi UTC 11-22 arasında her vuruşta koşar (bkz. index.ts inKkWindow)
 #    (SCAN_CRON / TRADER_CRON / GOLD_CRON sabitleri src/index.ts içinde — birlikte değiştirin)
 [triggers]
 crons = ["*/5 13-21 * * 1-5", "40 13,17,19 * * 1-5", "*/10 13-20 * * 1-5", "*/10 * * * *"]

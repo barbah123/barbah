@@ -161,6 +161,9 @@ uzaklaşmış** hisseler izlemeye alınır. Sinyal ancak **dönüş teyit olunca
 önceki günün düşüğü kırılır ve gün kırmızıdır (yükselirken asla short'lanmaz).
 Stop bugünün/dünün tepesinden **girişe yakın olanı**, hedef 10/20 EMA bölgesi.
 Tetiğin bir ADR altına düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
+Ayrıca short'ta **risk tavanı** vardır (2,5 × ADR, en çok %30): stop ancak tepenin
+üstünde olabildiği için, tavanı aşan aday uydurma stop'la sinyale çevrilmez —
+atlanır. Bu kapı `force` ile de atlanmaz.
 
 ### Nasıl çalışır (bütçe mimarisi)
 

@@ -783,8 +783,11 @@ async function checkTriggers(
       .filter((v): v is number => typeof v === 'number' && v > 0 && v < entry)
       .filter((v) => v >= floor && v <= ceil);
     const stop = candidates.length ? Math.max(...candidates) : floor;
-    const stopRef =
-      l.dayLow != null && stop === l.dayLow ? 'günün düşüğü' : `${w.ma_ref ?? 'MA'} / baz dibi`;
+    const stopRef = !candidates.length
+      ? 'risk sınırı (2,5 ADR — yapısal seviye çok uzak)'
+      : l.dayLow != null && stop === l.dayLow
+        ? 'günün düşüğü'
+        : `${w.ma_ref ?? 'MA'} / baz dibi`;
     const riskPct = ((entry - stop) / entry) * 100;
     const target = entry * (1 + (adr * 2.5) / 100); // 3-5 günde 2-3 ADR
 
@@ -848,7 +851,17 @@ async function checkTriggers(
     );
     // Günün tepesi ile dünün tepesinden HANGİSİ daha yakınsa o: short stop'u
     // kırılan seviyenin hemen üstünde durur, gereksiz geniş risk alınmaz.
-    const stop = highRefs.length ? Math.min(...highRefs) : entry * 1.15;
+    if (!highRefs.length) continue;
+    const stop = Math.min(...highRefs);
+    // RİSK TAVANI: short'ta uydurma stop olmaz (tepenin üstü neresi ise orasıdır),
+    // o yüzden tavanı aşan aday sinyal üretmez — atlanır. 27 Ağu'da CRE gün içinde
+    // $8.60'tan $5.45'e çökmüştü; tetik kırılalı çok olduğu için dünün tepesine
+    // göre risk %57,8 çıkıyor ve bu sinyal "işlenebilir" değil, geç kalmış demektir.
+    // Not: bu kapı `force` ile de atlanmaz. force seans/veri kapılarını atlamak
+    // içindir; risk tavanı ise sinyalin geçerliliğiyle ilgilidir — atlanırsa
+    // manuel koşu anlamsız risk taşıyan sinyal üretir.
+    const maxShortRisk = Math.min(0.3, Math.max(0.05, (adr * 2.5) / 100));
+    if (stop > entry * (1 + maxShortRisk)) continue;
     const stopRef = l.dayHigh != null && stop === l.dayHigh ? 'bugünün tepesi' : 'dünün tepesi';
     const riskPct = ((stop - entry) / entry) * 100;
     const target = w.ma_level && w.ma_level < entry ? w.ma_level : entry * 0.7;

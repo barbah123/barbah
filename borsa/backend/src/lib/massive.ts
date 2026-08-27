@@ -74,6 +74,10 @@ export interface MassiveBroadRow {
   dayChangePercent: number;
   gapPercent: number;
   rangePercent: number;
+  // Günün düşüğü/tepesi (pre-market'te 0 gelebilir → null). Stop referansı:
+  // KK kırılım stop'u "günün düşüğü", short stop'u "günün tepesi"dir.
+  dayLow: number | null;
+  dayHigh: number | null;
   liquidity: number; // gün hacmi (pre-market'te önceki gün hacmi)
   lastTime: number; // unix saniye
 }
@@ -109,6 +113,8 @@ export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
       dayChangePercent: t.todaysChangePerc,
       gapPercent,
       rangePercent,
+      dayLow: (t.day?.l ?? 0) > 0 ? t.day!.l! : null,
+      dayHigh: (t.day?.h ?? 0) > 0 ? t.day!.h! : null,
       liquidity: liqVol,
       lastTime: t.min?.t ? Math.floor(t.min.t / 1000) : Math.floor(Date.now() / 1000),
     });

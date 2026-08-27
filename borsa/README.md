@@ -140,9 +140,11 @@ Tabloda ve mesajlarda görünen "sıkılık"/"hacim" değerleri o baz için **uy
 
 Tetik: **konsolidasyon tepesinin (pivot) kırılışı** — ve kırılış hacimle gelmeli
 (saat eşleşmeli göreli hacim ≥ 1.5x). Pivotun bir ADR'sinden fazla uzaklaşmış
-fiyat kovalanmaz (üstünden gap'leyip kaçan hisse sinyal üretmez). Stop: 10/20 EMA,
-gün düşüğü ya da baz dibinden **girişe en yakın olanı** (en fazla 2.5 ADR). Hedef:
-3-5 günde 2-3 ADR → pozisyonun 1/3-1/2'sini sat, kalanı ortalamayla trail et.
+fiyat kovalanmaz (üstünden gap'leyip kaçan hisse sinyal üretmez). Stop KK'nin
+sırasıyla: **günün düşüğü**, olmazsa 10/20 EMA / önceki gün düşüğü / baz dibinden
+girişe en yakın olanı — 0,5 ADR'den yakın (gürültü) ve 2,5 ADR'den uzak (kötü
+risk/ödül) stop alınmaz. Hedef: 3-5 günde 2-3 ADR → pozisyonun 1/3-1/2'sini sat,
+kalanı ortalamayla trail et.
 
 ### 2. Episodic pivot — beklenmedik katalizör + olağanüstü hacim
 
@@ -157,8 +159,8 @@ Fiyat giriş bölgesinin bir ADR üstündeyse mesaj "kovalama" uyarısı taşır
 3 günde ≥ %35 / 5 günde ≥ %60 / 10 günde ≥ %100 yükselmiş ve **20 EMA'dan ≥ %30
 uzaklaşmış** hisseler izlemeye alınır. Sinyal ancak **dönüş teyit olunca** üretilir:
 önceki günün düşüğü kırılır ve gün kırmızıdır (yükselirken asla short'lanmaz).
-Stop dünün/bugünün tepesi, hedef 10/20 EMA bölgesi. Tetiğin bir ADR altına
-düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
+Stop bugünün/dünün tepesinden **girişe yakın olanı**, hedef 10/20 EMA bölgesi.
+Tetiğin bir ADR altına düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
 
 ### Nasıl çalışır (bütçe mimarisi)
 

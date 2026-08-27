@@ -542,6 +542,9 @@ interface LiveRow {
   dayChangePercent: number;
   gapPercent: number;
   dollarVolToday: number | null;
+  // KK'nin stop referansları: kırılımda günün düşüğü, short'ta günün tepesi
+  dayLow: number | null;
+  dayHigh: number | null;
   lastTime: number;
 }
 
@@ -565,6 +568,8 @@ async function liveMarket(
           dayChangePercent: r.dayChangePercent,
           gapPercent: r.gapPercent,
           dollarVolToday: r.liquidity * r.price,
+          dayLow: r.dayLow,
+          dayHigh: r.dayHigh,
           lastTime: r.lastTime,
         });
       }
@@ -592,6 +597,10 @@ async function liveMarket(
       dayChangePercent: ((price - s.previousClose) / s.previousClose) * 100,
       gapPercent: first ? ((first - s.previousClose) / s.previousClose) * 100 : 0,
       dollarVolToday: null,
+      // Yahoo yolunda yalnızca kapanış serisi var: gün düşüğü/tepesi yaklaşık
+      // (bar içi uçları göremez, bu yüzden gerçek düşükten biraz yüksektir)
+      dayLow: Math.min(...s.close),
+      dayHigh: Math.max(...s.close),
       lastTime: s.lastTime,
     });
   }
@@ -763,14 +772,19 @@ async function checkTriggers(
     // Giriş fiili fiyattır (pivot tetiktir); stop her zaman girişin ALTINDA
     // olmalı — aksi halde risk hesabı ters döner.
     const entry = l.price;
-    // Stop adayları: MA seviyesi, son günün düşüğü, baz dibi. KK sıkı stop
-    // sever (günün düşüğü); ama girişe göre 2.5 ADR'den geniş stop alınmaz.
+    // Stop adayları: KK'nin ilk tercihi GÜNÜN DÜŞÜĞÜ; yoksa/çok yakınsa MA
+    // seviyesi, önceki günün düşüğü ya da baz dibi. Girişe göre 2.5 ADR'den
+    // geniş stop alınmaz; 0.5 ADR'den yakın stop da gürültüye yem olur.
     const maxRisk = Math.max(0.03, Math.min(0.12, (adr * 2.5) / 100));
+    const minRisk = Math.max(0.005, (adr * 0.5) / 100);
     const floor = entry * (1 - maxRisk);
-    const candidates = [w.ma_level, w.last_low, w.base_low]
+    const ceil = entry * (1 - minRisk);
+    const candidates = [l.dayLow, w.ma_level, w.last_low, w.base_low]
       .filter((v): v is number => typeof v === 'number' && v > 0 && v < entry)
-      .filter((v) => v >= floor);
+      .filter((v) => v >= floor && v <= ceil);
     const stop = candidates.length ? Math.max(...candidates) : floor;
+    const stopRef =
+      l.dayLow != null && stop === l.dayLow ? 'günün düşüğü' : `${w.ma_ref ?? 'MA'} / baz dibi`;
     const riskPct = ((entry - stop) / entry) * 100;
     const target = entry * (1 + (adr * 2.5) / 100); // 3-5 günde 2-3 ADR
 
@@ -780,7 +794,7 @@ async function checkTriggers(
       `Konsolidasyon: ${w.base_len} gün, derinlik %${(w.depth_pct ?? 0).toFixed(1)}, ` +
       `sıkılık ${(w.tightness ?? 1).toFixed(2)}, hacim kuruması ${(w.vol_dryup ?? 1).toFixed(2)}x\n` +
       `Momentum: 1a ${pct0(w.gain_1m ?? 0)} | 3a ${pct0(w.gain_3m ?? 0)} | ADR %${adr.toFixed(1)}\n` +
-      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${w.ma_ref ?? 'MA'} / gün düşüğü\n` +
+      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${stopRef}\n` +
       `🎯 3-5 günde 2-3 ADR (≈ ${usd(target)}) → 1/3-1/2 sat, kalanı ${w.ma_ref ?? '10 EMA'} ile trail\n` +
       sizingLine(riskPct);
 
@@ -829,7 +843,13 @@ async function checkTriggers(
     // Giriş fiili fiyattır; tetik seviyesi ayrıca yazılır. Stop dünün/bugünün
     // tepesi — short'ta stop girişin ÜSTÜNDE olmalı.
     const entry = l.price;
-    const stop = w.last_high && w.last_high > entry ? w.last_high : entry * 1.15;
+    const highRefs = [l.dayHigh, w.last_high].filter(
+      (v): v is number => typeof v === 'number' && v > entry
+    );
+    // Günün tepesi ile dünün tepesinden HANGİSİ daha yakınsa o: short stop'u
+    // kırılan seviyenin hemen üstünde durur, gereksiz geniş risk alınmaz.
+    const stop = highRefs.length ? Math.min(...highRefs) : entry * 1.15;
+    const stopRef = l.dayHigh != null && stop === l.dayHigh ? 'bugünün tepesi' : 'dünün tepesi';
     const riskPct = ((stop - entry) / entry) * 100;
     const target = w.ma_level && w.ma_level < entry ? w.ma_level : entry * 0.7;
 
@@ -837,7 +857,7 @@ async function checkTriggers(
       `⚡ <b>KK PARABOLİK SHORT — ${w.symbol}</b> ${usd(l.price)} (${pct(l.dayChangePercent)})\n` +
       `Aşırı hareket: ${w.note ?? ''}\n` +
       `Tetik: önceki gün düşüğü ${usd(w.trigger_below!)} kırıldı → ilk kırmızı gün / dönüş teyidi\n` +
-      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — dünün/bugünün tepesi\n` +
+      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${stopRef}\n` +
       `🎯 10/20 EMA bölgesi ≈ ${usd(target)}; günler içinde parça parça kapat\n` +
       sizingLine(riskPct) +
       `\n⚠️ Short riski asimetriktir: borç bulma maliyeti, gap ve halt riski — küçük boyut.`;

@@ -869,7 +869,10 @@ async function checkTriggers(
     const message =
       `⚡ <b>KK PARABOLİK SHORT — ${w.symbol}</b> ${usd(l.price)} (${pct(l.dayChangePercent)})\n` +
       `Aşırı hareket: ${w.note ?? ''}\n` +
-      `Tetik: önceki gün düşüğü ${usd(w.trigger_below!)} kırıldı → ilk kırmızı gün / dönüş teyidi\n` +
+      // "ilk kırmızı gün" her zaman doğru değil: hisse dünden de düşmüş olabilir
+      // (28 Ağu MRNA sinyali böyleydi, üst üste yükseliş 0 gün). Nüansı not
+      // satırı taşıyor; başlık iddiasız kalıyor.
+      `Tetik: önceki gün düşüğü ${usd(w.trigger_below!)} kırıldı → dönüş teyidi\n` +
       `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${stopRef}\n` +
       `🎯 10/20 EMA bölgesi ≈ ${usd(target)}; günler içinde parça parça kapat\n` +
       sizingLine(riskPct) +

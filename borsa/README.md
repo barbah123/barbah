@@ -188,7 +188,9 @@ Mesajlarda pozisyon boyutu önerisi de var: %0,5 hesap riski ÷ stop mesafesi.
 - `GET /api/kk` — yapılandırma + izlenen kurulumlar + son sinyaller
 - `PATCH /api/kk` — `{enabled, min_price, min_dollar_vol, min_gap_pct, refresh_batch, universe_max}`
 - `POST /api/kk/run` — manuel koşu (`?force=1` seans/veri kapılarını atlar,
-  `?notify=0` Telegram'sız, `?batch=N` derin tarama adedi)
+  `?notify=0` Telegram'sız, `?batch=N` derin tarama adedi,
+  `?watchlist=1` izleme listesi raporunu günlük damgaya bakmadan yeniden gönderir —
+  rapor Telegram'a ulaşmadıysa)
 - `GET /api/kk/analyze?symbol=NVDA` — tek sembol tanısı: kurulum neden var/yok
 
 ## FTREND stratejisi (altın / trend takibi)

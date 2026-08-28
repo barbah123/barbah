@@ -1091,10 +1091,14 @@ async function maybeSendWatchlist(
   cfg: KKState,
   min: number,
   day: string,
-  force: boolean
+  opts: { force: boolean; resend: boolean }
 ): Promise<boolean> {
-  const due = force || (isWeekday() && min >= WATCHLIST_WINDOW.from && min < WATCHLIST_WINDOW.to);
-  if (!due || cfg.last_watchlist_day === day) return false;
+  // force → saat penceresini atlar (manuel koşu). resend → günlük "gönderildi"
+  // damgasını da atlar: rapor Telegram'a ulaşmadıysa/kaybolduysa tekrar istenebilsin.
+  const due =
+    opts.force || opts.resend || (isWeekday() && min >= WATCHLIST_WINDOW.from && min < WATCHLIST_WINDOW.to);
+  if (!due) return false;
+  if (!opts.resend && cfg.last_watchlist_day === day) return false;
   if (!telegramConfigured(env)) return false;
 
   const watch = await getKKWatch(db, 60);
@@ -1162,7 +1166,13 @@ const EP_WINDOW_END = 13 * 60; // EP avı öğleden sonra 13:00 NY'de biter
 export async function runKullamagi(
   db: D1Database,
   env: TelegramEnv,
-  options: { force?: boolean; notify?: boolean; refreshBatch?: number } = {}
+  options: {
+    force?: boolean;
+    notify?: boolean;
+    refreshBatch?: number;
+    /** Günlük damgayı yok sayıp izleme listesini yeniden gönder */
+    resendWatchlist?: boolean;
+  } = {}
 ): Promise<KKRunResult> {
   const force = options.force ?? false;
   const notify = options.notify ?? true;
@@ -1233,7 +1243,10 @@ export async function runKullamagi(
 
   let watchlistSent = false;
   try {
-    watchlistSent = await maybeSendWatchlist(db, env, cfg, min, day, force && !!options.notify);
+    watchlistSent = await maybeSendWatchlist(db, env, cfg, min, day, {
+      force: force && notify,
+      resend: !!options.resendWatchlist && notify,
+    });
   } catch (e) {
     console.error('KK izleme listesi hatası:', e);
   }

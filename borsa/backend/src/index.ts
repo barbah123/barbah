@@ -455,6 +455,8 @@ export default {
         const result = await runKullamagi(env.DB, env, {
           force: url.searchParams.get('force') === '1',
           notify: url.searchParams.get('notify') !== '0',
+          // ?watchlist=1 → izleme listesi raporunu günlük damgaya bakmadan yeniden gönder
+          resendWatchlist: url.searchParams.get('watchlist') === '1',
           refreshBatch:
             Number.isInteger(batchParam) && batchParam >= 0 && batchParam <= 30
               ? batchParam

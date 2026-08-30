@@ -347,6 +347,10 @@ export default {
           sets.push('enabled = ?');
           binds.push(body.enabled ? 1 : 0);
         }
+        if (body.trading !== undefined) {
+          sets.push('trading = ?');
+          binds.push(body.trading ? 1 : 0);
+        }
         if (body.symbol !== undefined) {
           const s = String(body.symbol).toUpperCase().trim();
           if (!s) return error('Sembol boş olamaz');
@@ -380,6 +384,32 @@ export default {
       if (path === '/api/goldwatch/run' && request.method === 'POST') {
         const info = await runGoldWatch(env.DB, env);
         return json({ ok: true, info });
+      }
+      // Sanal TL portföyü: işlem defteri ve sıfırlama
+      if (path === '/api/goldwatch/trades' && request.method === 'GET') {
+        const { results } = await env.DB
+          .prepare('SELECT * FROM gold_trades ORDER BY at DESC LIMIT 100')
+          .all();
+        return json({ trades: results });
+      }
+      if (path === '/api/goldwatch/reset' && request.method === 'POST') {
+        let amount = 1_000_000;
+        try {
+          const body: any = await request.json();
+          const a = Number(body?.amount);
+          if (Number.isFinite(a) && a > 0) amount = a;
+        } catch {
+          // gövde opsiyonel: varsayılan 1M ₺
+        }
+        await env.DB
+          .prepare(
+            `UPDATE goldwatch SET cash_tl = ?, gold_grams = 0, start_tl = ?,
+               start_gram_tl = NULL, started_at = NULL WHERE id = 1`
+          )
+          .bind(amount, amount)
+          .run();
+        await env.DB.prepare('DELETE FROM gold_trades').run();
+        return json({ ok: true, goldwatch: await getGoldWatch(env.DB) });
       }
 
       // Seviye alarmları: listeleme, ekleme, silme

@@ -133,8 +133,17 @@ pencere performansı) gönderir. Sinyaller mum kapanışında kesinleşir; piyas
 kapalıyken sessizdir.
 
 - `GET /api/goldwatch` — durum ve yapılandırma
-- `PATCH /api/goldwatch` — `{enabled, symbol, interval (15m|30m|1h), period, mult}`
+- `PATCH /api/goldwatch` — `{enabled, trading, symbol, interval (15m|30m|1h), period, mult}`
 - `POST /api/goldwatch/run` — manuel koşu (test için)
+- `GET /api/goldwatch/trades` — sanal işlem defteri
+- `POST /api/goldwatch/reset` — portföyü sıfırla (`{amount}` opsiyonel, varsayılan 1M ₺)
+
+**Sanal TL portföyü:** 1.000.000 ₺ başlangıç. AL sinyalinde tüm nakit gram
+altına döner (GC=F ons × USDTRY / 31,1035, yön başına %0,05 masraf), SAT
+sinyalinde TL'ye geçer. Her işlem Telegram sinyal mesajında görünür; 6 saatlik
+durum raporu portföy değeri, başlangıçtan getiri, gram-altın al-tut kıyası ve
+kazanç oranını içerir. TL bazlı sonuç kur (USDTRY) hareketini de içerir —
+Türkiye'den altın alan birinin gerçek deneyimiyle aynıdır.
 
 Varsayılan **1h FTREND(2,3)**: 2,4 yıllık 1h verisinde örneklem dışı doğrulamayı
 geçen kurulum. Aynı 60 günlük pencerede 15m tüm parametrelerde zarar ederken

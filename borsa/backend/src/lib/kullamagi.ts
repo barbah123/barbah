@@ -64,7 +64,12 @@ const MAX_EP_INTEL = 2; // istihbarat (sembol başına ~4 istek)
 const MAX_PARA_SIGNALS = 3;
 const YAHOO_LIVE_CAP = 30; // Massive yoksa canlı fiyat çekilen sembol tavanı
 const REFRESH_TTL_HOURS = 20; // aynı sembolü günde bir kez derin tara
-const WATCH_STALE_DAYS = 5; // bu kadar gün tazelenmemiş kurulum tetiklenmez
+const WATCH_STALE_DAYS = 5; // bu kadar gün tazelenmemiş kurulum listelenmez
+// Tetik için ayrı, daha sıkı tazelik: seviyeler günlük mumlardan hesaplanır,
+// aradan seans geçtiyse baz çoktan bozulmuş olabilir. 3 gün hafta sonunu
+// tolere eder (Cuma kapanışında hesaplanan seviye Pazartesi açılışında geçerli)
+// ama atlanmış seansları etmez.
+const TRIGGER_MAX_AGE_DAYS = 3;
 
 // ---- Zaman yardımcıları (New York seansı, DST dahil) ----
 
@@ -741,7 +746,12 @@ async function checkTriggers(
   live: Map<string, LiveRow>,
   options: { notify: boolean; force: boolean }
 ): Promise<KKSignalRow[]> {
-  const watch = await getKKWatch(db, 200);
+  const all = await getKKWatch(db, 200);
+  // Bayat seviyelerle sinyal üretilmez (bkz. TRIGGER_MAX_AGE_DAYS)
+  const maxAgeMs = TRIGGER_MAX_AGE_DAYS * 24 * 3600 * 1000;
+  const watch = all.filter(
+    (w) => Date.now() - Date.parse(w.checked_at.replace(' ', 'T') + 'Z') <= maxAgeMs
+  );
   const signals: KKSignalRow[] = [];
 
   // --- Breakout: canlı fiyat konsolidasyon tepesini aştı mı? ---
@@ -1205,7 +1215,13 @@ export async function runKullamagi(
   // Sıcak sembol hafızası (tarama + nabız alarmları) evrene eklenir: KK'nin
   // "günün en çok hareket edenleri" listesi bu isimlerden beslenir.
   const hot = await getHotSymbols(db).catch(() => [] as string[]);
-  const fullUniverse = [...new Set([...universe, ...hot])];
+  // İZLENEN KURULUMLAR HER ZAMAN EVRENDE: bir sembol likidite süzgecinden
+  // düşünce (patlaması sönen küçük hisseler tipik) evrenden çıkıyor, dönen
+  // tarama ona bir daha uğramıyor ve kk_watch'taki pivot/tetik seviyeleri
+  // günlerce tazelenmeden tetiklenebilir kalıyordu (31 Ağu: en yüksek skorlu
+  // beş kurulumun seviyeleri Cuma akşamındandı). Kurulumu olan semboller
+  // evrene eklenir; artık kurulum taşımıyorlarsa tarama onları 'none' yapar.
+  const fullUniverse = [...new Set([...universe, ...hot, ...priority])];
   const lastBarTime = Math.max(0, ...[...map.values()].map((r) => r.lastTime));
   const stale = lastBarTime > 0 && Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS;
 

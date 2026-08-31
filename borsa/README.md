@@ -173,7 +173,11 @@ başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
 1. **Derin tarama (yavaş, günlük)** — her koşuda `refresh_batch` kadar sembol
    (varsayılan 10) günlük mumlarla analiz edilir ve `kk_watch` tablosuna
    pivot/tetik seviyeleriyle yazılır. Sıra "en uzun süredir bakılmayan" sembole
-   göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası.
+   göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası
+   + **hâlihazırda kurulumu olan semboller** (bunlar likidite süzgecinden düşse
+   bile tazelenmeli, yoksa seviyeleri donar). Tetik için ayrıca tazelik şartı
+   vardır: 3 günden eski seviyelerle sinyal üretilmez (hafta sonunu tolere eder,
+   atlanmış seansları etmez).
 2. **Tetik (hızlı, canlı)** — her koşuda tüm piyasa **tek snapshot** çağrısıyla
    alınır ve saklanan seviyelerle kıyaslanır. Yalnızca tetiklenen avuç dolusu aday
    için gün içi hacim / açılış aralığı / haber çekilir.

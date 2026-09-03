@@ -148,7 +148,7 @@ export default {
         const { results } = await env.DB
           .prepare('SELECT id, cron, at FROM cron_heartbeat')
           .all<{ id: number; cron: string; at: string }>();
-        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk' };
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk', 8: 'telegram_error' };
         const jobs: Record<string, unknown> = {};
         let newestAge: number | null = null;
         for (const r of results) {
@@ -689,8 +689,8 @@ export default {
 // (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
 
 type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk';
-// DİKKAT: id 4 ve 5 tanı kayıtlarına ayrılmıştır (4=trader_report, 5=trader_attempt,
-// trader.ts yazar). Altın işi id 4'ü kullanınca rapor izinin üstüne yazıyordu
+// DİKKAT: id 4, 5 ve 8 tanı kayıtlarına ayrılmıştır (4=trader_report,
+// 5=trader_attempt, 8=telegram_error — trader.ts yazar). Altın işi id 4'ü kullanınca rapor izinin üstüne yazıyordu
 // (3 Ağu: trader_report kaynağı "alarm" görünüyordu) — altın 6'ya taşındı.
 const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7 };
 const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {

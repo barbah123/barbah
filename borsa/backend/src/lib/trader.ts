@@ -10,7 +10,13 @@
 import { scanMarket, type ScanCandidate } from './scanner';
 import { getQuotes } from './data';
 import { placeOrder } from './broker';
-import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import {
+  sendTelegram,
+  telegramConfigured,
+  getTelegramLastError,
+  getTelegramRetryAfterSec,
+  type TelegramEnv,
+} from './telegram';
 import { getIntel, getRedditBuzzMap } from './intel';
 import { getHotSymbols } from './pulse';
 
@@ -773,8 +779,10 @@ export async function runTraderCycle(
       .catch(() => {});
   }
 
-  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
-  const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
+  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil).
+  // Sıcak liste 60'a kadar büyüyebilir ve her sembol 1 aggregates çağrısı:
+  // trader bütçesinde rapor/fiyat payı kalması için burada kırpılır (3 Eyl).
+  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 12);
   const snapshot = await scanMarket(hotSymbols);
   // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
   // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu
@@ -870,8 +878,13 @@ export async function runTraderCycle(
     );
     if (telegramConfigured(env)) {
       reported = await sendTelegram(env, report);
-      // Tek yeniden deneme: geçici ağ/limit hatasında raporu sessizce yutma
-      if (!reported) reported = await sendTelegram(env, report);
+      // Yeniden deneme: anlık tekrar 429'a takılır — retry_after kadar
+      // (üst sınır 25 sn) bekle. Trader HTTP bağlamında koşar, bekleme güvenli.
+      if (!reported) {
+        const waitSec = Math.min(Math.max(getTelegramRetryAfterSec(), 4), 25);
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+        reported = await sendTelegram(env, report);
+      }
     }
     // Gözlemlenebilirlik: son rapor denemesinin sonucu kalp atışına yazılır
     // (id=4 → /api/health'te trader_report olarak görünür). Hangi döngülerin
@@ -883,6 +896,16 @@ export async function runTraderCycle(
         )
         .bind(reported ? 'ok' : 'fail')
         .run();
+      // Hata metni id=8'e (telegram_error): console kalıcı olmadığından art arda
+      // 'fail' turlarında neden (429/400/ağ) ancak buradan okunabiliyor.
+      if (!reported) {
+        await db
+          .prepare(
+            "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (8, ?, datetime('now'))"
+          )
+          .bind((getTelegramLastError() ?? 'bilinmiyor').slice(0, 120))
+          .run();
+      }
     } catch {
       // tanı kaydı asıl akışı engellemesin
     }

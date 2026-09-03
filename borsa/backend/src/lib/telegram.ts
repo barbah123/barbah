@@ -14,6 +14,20 @@ export function telegramConfigured(env: TelegramEnv): boolean {
   return Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID);
 }
 
+// Son gönderim hatası (yalnızca bu izolasyon örneği içinde geçerli). Worker'da
+// console.error kalıcı değil; çağıran bu metni D1 kalp atışına yazarak
+// /api/health üzerinden görünür kılar (3 Eyl: art arda 'fail' ama neden yok).
+let lastError: string | null = null;
+// 429 yanıtındaki retry_after saniyesi — çağıranın beklemeli yeniden denemesi için
+let lastRetryAfterSec = 0;
+
+export function getTelegramLastError(): string | null {
+  return lastError;
+}
+export function getTelegramRetryAfterSec(): number {
+  return lastRetryAfterSec;
+}
+
 export async function sendTelegram(env: TelegramEnv, text: string): Promise<boolean> {
   if (!telegramConfigured(env)) return false;
   try {
@@ -31,11 +45,24 @@ export async function sendTelegram(env: TelegramEnv, text: string): Promise<bool
       }
     );
     if (!res.ok) {
-      console.error('Telegram hatası:', res.status, await res.text());
+      const body = await res.text();
+      lastError = `${res.status} ${body}`.slice(0, 200);
+      let retryAfter = 0;
+      try {
+        retryAfter = Number(JSON.parse(body)?.parameters?.retry_after) || 0;
+      } catch {
+        // gövde JSON değilse retry_after yok say
+      }
+      lastRetryAfterSec = retryAfter;
+      console.error('Telegram hatası:', res.status, body);
       return false;
     }
+    lastError = null;
+    lastRetryAfterSec = 0;
     return true;
   } catch (e) {
+    lastError = String((e as any)?.message ?? e).slice(0, 200);
+    lastRetryAfterSec = 0;
     console.error('Telegram gönderilemedi:', e);
     return false;
   }

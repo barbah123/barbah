@@ -779,8 +779,10 @@ export async function runTraderCycle(
       .catch(() => {});
   }
 
-  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
-  const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
+  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil).
+  // Sıcak liste 60'a kadar büyüyebilir ve her sembol 1 aggregates çağrısı:
+  // trader bütçesinde rapor/fiyat payı kalması için burada kırpılır (3 Eyl).
+  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 12);
   const snapshot = await scanMarket(hotSymbols);
   // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
   // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu

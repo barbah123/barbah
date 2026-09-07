@@ -264,8 +264,10 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
         // Sert tavan: extraSymbols (sıcak liste) 60'a kadar şişebiliyor ve her
         // sembol 1 aggregates çağrısı. 3 Eyl: hareketli günde toplam 75'e çıkıp
         // 50 alt-istek bütçesini rapor gönderilmeden tüketti (trader_report=fail,
-        // telegram_error="Too many subrequests"). 30 → rapor+fiyat payı garanti.
-      ].slice(0, 30);
+        // telegram_error="Too many subrequests"). D1 sorguları ve pozisyon fiyat
+        // çağrıları da AYNI bütçeden düşer: 30 bile sınırda kaldı (7 Eyl yine
+        // fail) — 20, rapor+fiyat+D1 payını garantiler.
+      ].slice(0, 20);
       const series = await fetchSpark(enrichSyms);
       for (const [sym, s] of series) {
         const en = analyze(sym, s);

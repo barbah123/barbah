@@ -782,7 +782,7 @@ export async function runTraderCycle(
   // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil).
   // Sıcak liste 60'a kadar büyüyebilir ve her sembol 1 aggregates çağrısı:
   // trader bütçesinde rapor/fiyat payı kalması için burada kırpılır (3 Eyl).
-  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 12);
+  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 8);
   const snapshot = await scanMarket(hotSymbols);
   // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
   // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu
@@ -838,7 +838,11 @@ export async function runTraderCycle(
     .prepare('SELECT symbol, quantity, avg_cost FROM positions WHERE portfolio_id = ?')
     .bind(portfolioId)
     .all<{ symbol: string; quantity: number; avg_cost: number }>();
-  const symbols = [...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)])];
+  // Fiyat listesi de bütçeden düşer (sembol başına 1 çağrı olabilir):
+  // açık işlemler önce (rapor için kritik), toplam 12 ile sınırla (7 Eyl).
+  const symbols = [
+    ...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)]),
+  ].slice(0, 12);
   const quotes = symbols.length ? await getQuotes(symbols) : [];
   const priceMap = new Map(quotes.map((q) => [q.symbol, q.price]));
 

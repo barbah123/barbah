@@ -47,11 +47,12 @@ export interface SparkSeries {
 // oysa tekil "chart" ucu Worker'dan sorunsuz çalışıyor. Bu yüzden veri, sembol
 // başına chart ile toplanır. Worker alt-istek bütçesine sığmak için tavan var;
 // çağıranlar hareketli hisseleri (dinamik + sıcak) listenin başına koyar.
-// Massive güvenilir ve hızlı olduğu için tavan yükseltildi (13→90). Alt-istek
-// bütçesi aşılırsa massiveAggregates hata fırlatmadan boş döner (kademeli
-// kısıtlama), yani yüksek tavan çökme riski taşımaz — sadece bütçe elverdiğince
-// sembol taranır.
-const MAX_SPARK_SYMBOLS = 90;
+// 90'lık tavan "aşım zararsız" varsayımıyla konmuştu ama YANLIŞTI: bütçe
+// aşımında SONRAKİ her çağrı düşer — kurban çoğu kez Telegram raporu oldu
+// (7 Eyl: tatil günü broadRows boş → evren yolu → [fetch=95] → rapor fail).
+// 35, tek süpürmeyi her bağlamda 50'lik bütçeye sığdırır; evren listeleri en
+// değerli sembolleri başa koyduğu için kayıp en sondaki sakin semboller olur.
+const MAX_SPARK_SYMBOLS = 35;
 const SPARK_CONCURRENCY = 12;
 
 async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
@@ -302,8 +303,10 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
   }
 
   const dynamic = await getDynamicSymbols();
-  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller
-  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])];
+  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller.
+  // 25'lik dilim: bu yol trader döngüsünün İÇİNDE de koşabilir (tatil/veri yokken
+  // broadRows boş döner — 7 Eyl) ve bütçenin kalanı rapora yetmelidir.
+  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])].slice(0, 25);
   const dynamicCount = new Set(dynamic).size;
   const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));

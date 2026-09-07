@@ -7,6 +7,8 @@
 // Tüm kaynaklar "fail-open" çalışır: kaynak erişilemezse işlemi durdurmaz,
 // yalnızca kesin OLUMSUZ istihbarat girişi engeller.
 
+import { bumpSubreq } from './subreq';
+
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
@@ -49,6 +51,7 @@ const EARNINGS_BLOCK_DAYS = 2;
 const NEWS_MAX_AGE_HOURS = 48;
 
 async function fetchJson(url: string): Promise<any> {
+  bumpSubreq();
   const res = await fetch(url, {
     headers: { 'User-Agent': UA, Accept: 'application/json' },
   });

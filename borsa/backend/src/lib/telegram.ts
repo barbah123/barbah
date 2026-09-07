@@ -5,6 +5,8 @@
 //   wrangler secret put TELEGRAM_CHAT_ID
 // Token tanımlı değilse bildirimler sessizce atlanır (uygulama çalışmaya devam eder).
 
+import { bumpSubreq } from './subreq';
+
 export interface TelegramEnv {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
@@ -31,6 +33,7 @@ export function getTelegramRetryAfterSec(): number {
 export async function sendTelegram(env: TelegramEnv, text: string): Promise<boolean> {
   if (!telegramConfigured(env)) return false;
   try {
+    bumpSubreq();
     const res = await fetch(
       `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`,
       {

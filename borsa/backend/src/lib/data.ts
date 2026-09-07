@@ -3,6 +3,7 @@
 // (anahtar gerektirmez; tarayıcı User-Agent başlığı zorunludur, yoksa 429 döner).
 
 import { massiveConfigured, massiveQuote, massiveAggregates } from './massive';
+import { bumpSubreq } from './subreq';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -34,6 +35,7 @@ const quoteCache = new Map<string, { quote: Quote; at: number }>();
 const QUOTE_TTL_MS = 5000;
 
 async function yahooFetch(path: string): Promise<any> {
+  bumpSubreq();
   const res = await fetch(`${YAHOO}${path}`, {
     headers: { 'User-Agent': UA, Accept: 'application/json' },
   });

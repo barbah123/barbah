@@ -17,6 +17,7 @@ import {
   getTelegramRetryAfterSec,
   type TelegramEnv,
 } from './telegram';
+import { resetSubreq, subreqCount } from './subreq';
 import { getIntel, getRedditBuzzMap } from './intel';
 import { getHotSymbols } from './pulse';
 
@@ -769,6 +770,10 @@ export async function runTraderCycle(
     return { ...empty, skippedReason: 'Piyasa kapalı (ABD seansı dışı)' };
   }
 
+  // Tanı: dış çağrı sayacı bu döngü için sıfırlanır (bkz. subreq.ts) —
+  // "Too many subrequests" hatasında gerçek sayı [fetch=N] olarak kaydedilir.
+  resetSubreq();
+
   // Başlangıç izi (id=5): koşum yarıda kesilirse bile "denendi" kaydı kalır.
   // trader_attempt > trader_report ise koşumlar rapora ulaşamadan ölüyor demektir
   // (21 Tem: cron bağlamındaki koşumlar iz bırakmadan kesildi — teşhis için).
@@ -907,7 +912,9 @@ export async function runTraderCycle(
           .prepare(
             "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (8, ?, datetime('now'))"
           )
-          .bind((getTelegramLastError() ?? 'bilinmiyor').slice(0, 120))
+          .bind(
+            `[fetch=${subreqCount()}] ${(getTelegramLastError() ?? 'bilinmiyor')}`.slice(0, 120)
+          )
           .run();
       }
     } catch {

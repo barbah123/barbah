@@ -6,6 +6,7 @@
 import { getCandles } from './data';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
 import { massiveConfigured, massiveMovers, massiveSeriesFor, massiveBroadRows } from './massive';
+import { bumpSubreq } from './subreq';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -55,6 +56,7 @@ const SPARK_CONCURRENCY = 12;
 
 async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
   try {
+    bumpSubreq();
     const res = await fetch(
       `${YAHOO}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`,
       { headers: { 'User-Agent': UA, Accept: 'application/json' } }
@@ -182,6 +184,7 @@ export async function getDynamicSymbols(): Promise<string[]> {
   const found: string[] = [];
   for (const scrId of ['day_gainers', 'most_actives']) {
     try {
+      bumpSubreq();
       const res = await fetch(
         `${YAHOO}/v1/finance/screener/predefined/saved?scrIds=${scrId}&count=50`,
         { headers: { 'User-Agent': UA, Accept: 'application/json' } }

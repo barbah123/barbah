@@ -1222,8 +1222,15 @@ export async function runKullamagi(
   // beş kurulumun seviyeleri Cuma akşamındandı). Kurulumu olan semboller
   // evrene eklenir; artık kurulum taşımıyorlarsa tarama onları 'none' yapar.
   const fullUniverse = [...new Set([...universe, ...hot, ...priority])];
-  const lastBarTime = Math.max(0, ...[...map.values()].map((r) => r.lastTime));
-  const stale = lastBarTime > 0 && Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS;
+  // TAZELİK BİLİNMİYORSA BAYAT SAYILIR. Eski hal (`lastBarTime > 0 && ...`)
+  // zaman damgası bulunamayınca veriyi TAZE kabul ediyordu; yani sağlayıcı
+  // bozulduğunda ya da piyasa kapalıyken sistem kendini "seans içi, veri taze"
+  // sanıp bayat fiyatlarla sinyal üretebilirdi. 7 Eylül (Labor Day, piyasa
+  // kapalı) canlı koşusu tam bunu gösterdi: en taze veri 71 saatlikken faz
+  // "seans", bayat "false" görünüyordu.
+  const times = [...map.values()].map((r) => r.lastTime).filter((t) => t > 0);
+  const lastBarTime = times.length ? Math.max(...times) : 0;
+  const stale = lastBarTime === 0 || Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS;
 
   // Tetikler yalnızca seans içinde ve taze veriyle üretilir. Açılışın ilk 5
   // dakikası atlanır: KK açılış aralığı oturmadan kırılım almaz.
@@ -1290,7 +1297,15 @@ export async function runKullamagi(
     notified: signals.filter((s) => s.notified).length,
     watchlistSent,
     stale,
-    phase: tradable ? 'seans' : stale ? 'veri bayat' : inNySession(min) ? 'seans (ısınma)' : 'seans dışı',
+    phase: tradable
+      ? 'seans'
+      : stale
+        ? lastBarTime === 0
+          ? 'veri zaman damgasız (bayat sayıldı)'
+          : 'veri bayat'
+        : inNySession(min)
+          ? 'seans (ısınma)'
+          : 'seans dışı',
   };
 }
 

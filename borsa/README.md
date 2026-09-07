@@ -180,7 +180,10 @@ başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
    atlanmış seansları etmez).
 2. **Tetik (hızlı, canlı)** — her koşuda tüm piyasa **tek snapshot** çağrısıyla
    alınır ve saklanan seviyelerle kıyaslanır. Yalnızca tetiklenen avuç dolusu aday
-   için gün içi hacim / açılış aralığı / haber çekilir.
+   için gün içi hacim / açılış aralığı / haber çekilir. Tetikler yalnızca veri
+   TAZE ise üretilir; tazelik **bilinmiyorsa** (zaman damgası yok, sağlayıcı
+   bozuk) bayat sayılır ve sinyal üretilmez — tatil günlerinde/kesintide bir
+   önceki seansın fiyatlarıyla sinyal çıkmasın diye.
 
 Ek olarak her sabah **08:00-09:25 NY** arasında günün **izleme listesi** gönderilir:
 kırılım adayları pivot ve stop bölgeleriyle, parabolik izlemedekiler tetik

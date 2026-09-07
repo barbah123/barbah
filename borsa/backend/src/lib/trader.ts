@@ -17,6 +17,7 @@ import {
   getTelegramRetryAfterSec,
   type TelegramEnv,
 } from './telegram';
+import { resetSubreq, subreqCount } from './subreq';
 import { getIntel, getRedditBuzzMap } from './intel';
 import { getHotSymbols } from './pulse';
 
@@ -769,6 +770,10 @@ export async function runTraderCycle(
     return { ...empty, skippedReason: 'Piyasa kapalı (ABD seansı dışı)' };
   }
 
+  // Tanı: dış çağrı sayacı bu döngü için sıfırlanır (bkz. subreq.ts) —
+  // "Too many subrequests" hatasında gerçek sayı [fetch=N] olarak kaydedilir.
+  resetSubreq();
+
   // Başlangıç izi (id=5): koşum yarıda kesilirse bile "denendi" kaydı kalır.
   // trader_attempt > trader_report ise koşumlar rapora ulaşamadan ölüyor demektir
   // (21 Tem: cron bağlamındaki koşumlar iz bırakmadan kesildi — teşhis için).
@@ -782,7 +787,7 @@ export async function runTraderCycle(
   // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil).
   // Sıcak liste 60'a kadar büyüyebilir ve her sembol 1 aggregates çağrısı:
   // trader bütçesinde rapor/fiyat payı kalması için burada kırpılır (3 Eyl).
-  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 12);
+  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 8);
   const snapshot = await scanMarket(hotSymbols);
   // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
   // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu
@@ -838,7 +843,11 @@ export async function runTraderCycle(
     .prepare('SELECT symbol, quantity, avg_cost FROM positions WHERE portfolio_id = ?')
     .bind(portfolioId)
     .all<{ symbol: string; quantity: number; avg_cost: number }>();
-  const symbols = [...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)])];
+  // Fiyat listesi de bütçeden düşer (sembol başına 1 çağrı olabilir):
+  // açık işlemler önce (rapor için kritik), toplam 12 ile sınırla (7 Eyl).
+  const symbols = [
+    ...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)]),
+  ].slice(0, 12);
   const quotes = symbols.length ? await getQuotes(symbols) : [];
   const priceMap = new Map(quotes.map((q) => [q.symbol, q.price]));
 
@@ -903,7 +912,9 @@ export async function runTraderCycle(
           .prepare(
             "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (8, ?, datetime('now'))"
           )
-          .bind((getTelegramLastError() ?? 'bilinmiyor').slice(0, 120))
+          .bind(
+            `[fetch=${subreqCount()}] ${(getTelegramLastError() ?? 'bilinmiyor')}`.slice(0, 120)
+          )
           .run();
       }
     } catch {

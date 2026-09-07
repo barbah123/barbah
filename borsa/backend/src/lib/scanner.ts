@@ -6,6 +6,7 @@
 import { getCandles } from './data';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
 import { massiveConfigured, massiveMovers, massiveSeriesFor, massiveBroadRows } from './massive';
+import { bumpSubreq } from './subreq';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
 const UA =
@@ -46,15 +47,17 @@ export interface SparkSeries {
 // oysa tekil "chart" ucu Worker'dan sorunsuz çalışıyor. Bu yüzden veri, sembol
 // başına chart ile toplanır. Worker alt-istek bütçesine sığmak için tavan var;
 // çağıranlar hareketli hisseleri (dinamik + sıcak) listenin başına koyar.
-// Massive güvenilir ve hızlı olduğu için tavan yükseltildi (13→90). Alt-istek
-// bütçesi aşılırsa massiveAggregates hata fırlatmadan boş döner (kademeli
-// kısıtlama), yani yüksek tavan çökme riski taşımaz — sadece bütçe elverdiğince
-// sembol taranır.
-const MAX_SPARK_SYMBOLS = 90;
+// 90'lık tavan "aşım zararsız" varsayımıyla konmuştu ama YANLIŞTI: bütçe
+// aşımında SONRAKİ her çağrı düşer — kurban çoğu kez Telegram raporu oldu
+// (7 Eyl: tatil günü broadRows boş → evren yolu → [fetch=95] → rapor fail).
+// 35, tek süpürmeyi her bağlamda 50'lik bütçeye sığdırır; evren listeleri en
+// değerli sembolleri başa koyduğu için kayıp en sondaki sakin semboller olur.
+const MAX_SPARK_SYMBOLS = 35;
 const SPARK_CONCURRENCY = 12;
 
 async function fetchChartSeries(symbol: string): Promise<SparkSeries | null> {
   try {
+    bumpSubreq();
     const res = await fetch(
       `${YAHOO}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d`,
       { headers: { 'User-Agent': UA, Accept: 'application/json' } }
@@ -182,6 +185,7 @@ export async function getDynamicSymbols(): Promise<string[]> {
   const found: string[] = [];
   for (const scrId of ['day_gainers', 'most_actives']) {
     try {
+      bumpSubreq();
       const res = await fetch(
         `${YAHOO}/v1/finance/screener/predefined/saved?scrIds=${scrId}&count=50`,
         { headers: { 'User-Agent': UA, Accept: 'application/json' } }
@@ -264,8 +268,10 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
         // Sert tavan: extraSymbols (sıcak liste) 60'a kadar şişebiliyor ve her
         // sembol 1 aggregates çağrısı. 3 Eyl: hareketli günde toplam 75'e çıkıp
         // 50 alt-istek bütçesini rapor gönderilmeden tüketti (trader_report=fail,
-        // telegram_error="Too many subrequests"). 30 → rapor+fiyat payı garanti.
-      ].slice(0, 30);
+        // telegram_error="Too many subrequests"). D1 sorguları ve pozisyon fiyat
+        // çağrıları da AYNI bütçeden düşer: 30 bile sınırda kaldı (7 Eyl yine
+        // fail) — 20, rapor+fiyat+D1 payını garantiler.
+      ].slice(0, 20);
       const series = await fetchSpark(enrichSyms);
       for (const [sym, s] of series) {
         const en = analyze(sym, s);
@@ -297,8 +303,10 @@ export async function scanMarket(extraSymbols: string[] = []): Promise<MarketSna
   }
 
   const dynamic = await getDynamicSymbols();
-  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller
-  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])];
+  // Hareketliler (dinamik + sıcak) önce: chart tavanı altında en değerli semboller.
+  // 25'lik dilim: bu yol trader döngüsünün İÇİNDE de koşabilir (tatil/veri yokken
+  // broadRows boş döner — 7 Eyl) ve bütçenin kalanı rapora yetmelidir.
+  const universe = [...new Set([...dynamic, ...extraSymbols, ...SCAN_UNIVERSE])].slice(0, 25);
   const dynamicCount = new Set(dynamic).size;
   const spark = await fetchSpark(universe);
   const all = [...spark.entries()].map(([symbol, s]) => analyze(symbol, s));

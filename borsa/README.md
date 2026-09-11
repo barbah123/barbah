@@ -23,6 +23,17 @@ borsa/backend/src/
 
 Akış: **veri → strateji → sinyal → doğrulama → yürütme**. Doğrulamayı geçemeyen sinyal `skipped` olarak kaydedilir, geçen sinyal paper-broker'da emre dönüşür. Her adım `signals` ve `orders` tablolarında izlenebilir.
 
+## Dış veri çağrılarında zaman aşımı
+
+Tüm dış veri çağrıları (Massive ve Yahoo) `lib/http.ts` içindeki
+`fetchWithTimeout` ile 10 saniyelik zaman aşımına sarılır. Sebep: Cloudflare
+`fetch`'i kendi başına süresiz bekler; sağlayıcı **hata vermek yerine asılı
+kalırsa** (11 Eyl 14:27-16:10, Massive) çağıran iş de asılı kalır. Yedek
+kaynağa düşme mantığı ancak çağrı bitince (hata/boş sonuç) devreye girdiği için
+asılı bir sağlayıcı tarayıcıyı sessizce kör eder — sinyal üretimi durur ama
+kalp atışı (iş **başlarken** damgalanır) sağlıklı görünmeye devam eder. Zaman
+aşımı, mevcut fail-open yollarının çalışmasını garanti eder.
+
 ## Anlık veri nereden geliyor?
 
 - **Yahoo Finance** (varsayılan): API anahtarı gerektirmez, ABD hisselerinde neredeyse anlık. Tarayıcı `User-Agent` başlığı zorunludur (kodda hazır).

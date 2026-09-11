@@ -4,6 +4,7 @@
 // Anahtar KODA YAZILMAZ — Cloudflare secret (MASSIVE_API_KEY) olarak set edilir ve
 // her istek/cron girişinde setMassiveKey() ile bu modüle aktarılır.
 
+import { fetchWithTimeout } from './http';
 import type { Quote, Candle } from './data';
 import type { SparkSeries } from './scanner';
 import { bumpSubreq } from './subreq';
@@ -22,9 +23,12 @@ async function mFetch(path: string): Promise<any> {
   if (!API_KEY) throw new Error('MASSIVE_API_KEY tanımlı değil');
   bumpSubreq();
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`${BASE}${path}${sep}apiKey=${encodeURIComponent(API_KEY)}`, {
-    headers: { Accept: 'application/json' },
-  });
+  // Zaman aşımlı: sağlayıcı asılı kalırsa çağrı iptal edilir ve çağıranın
+  // Yahoo yedeğine düşmesi mümkün olur (bkz. http.ts fetchWithTimeout).
+  const res = await fetchWithTimeout(
+    `${BASE}${path}${sep}apiKey=${encodeURIComponent(API_KEY)}`,
+    { headers: { Accept: 'application/json' } }
+  );
   if (!res.ok) throw new Error(`Massive ${res.status}`);
   return res.json();
 }

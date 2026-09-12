@@ -199,12 +199,40 @@ pencere performansı) gönderir. Sinyaller mum kapanışında kesinleşir; piyas
 kapalıyken sessizdir.
 
 - `GET /api/goldwatch` — durum ve yapılandırma
-- `PATCH /api/goldwatch` — `{enabled, symbol, interval (15m|30m|1h), period, mult}`
+- `PATCH /api/goldwatch` — `{enabled, trading, symbol, interval (15m|30m|1h), period, mult}`
 - `POST /api/goldwatch/run` — manuel koşu (test için)
+- `GET /api/goldwatch/trades` — sanal işlem defteri
+- `POST /api/goldwatch/reset` — portföyü sıfırla (`{amount}` opsiyonel, varsayılan 1M ₺)
+
+**Sanal TL portföyü:** 1.000.000 ₺ başlangıç. AL sinyalinde tüm nakit gram
+altına döner (GC=F ons × USDTRY / 31,1035, yön başına %0,05 masraf), SAT
+sinyalinde TL'ye geçer. Her işlem Telegram sinyal mesajında görünür; 6 saatlik
+durum raporu portföy değeri, başlangıçtan getiri, gram-altın al-tut kıyası ve
+kazanç oranını içerir. TL bazlı sonuç kur (USDTRY) hareketini de içerir —
+Türkiye'den altın alan birinin gerçek deneyimiyle aynıdır.
 
 Varsayılan **1h FTREND(2,3)**: 2,4 yıllık 1h verisinde örneklem dışı doğrulamayı
 geçen kurulum. Aynı 60 günlük pencerede 15m tüm parametrelerde zarar ederken
 (masraf + testere) 1h artıda kaldı — 15m'e geçmek isterseniz
 `PATCH {"interval":"15m"}` yeter, ama veri 1h'ı destekliyor.
+
+### Opsiyon simülasyonu (`lib/optionsim.ts`)
+
+FTREND sinyalleriyle opsiyon stratejilerini Black-Scholes yaklaşımıyla simüle
+eder (geçmiş opsiyon fiyatı verisi ücretsiz yok: IV = gerçekleşen oynaklık ×
+1,15; prim başına yön başına %1,5 spread; vade < 7 günde roll). 2,4 yıllık GC=F
+1h verisinde bulgular:
+
+| Yapı (%10 prim tahsisi) | Tüm dönem | Örneklem dışı (son %30, yatay) |
+|---|---|---|
+| 0.5Δ sadece call, 30 gün | **+%106** (maxDD %29) | **−%6** |
+| 0.8Δ sadece call | +%50 (maxDD %21) | −%4 |
+| 0.5Δ call+put | +%0,4 (maxDD %56) | −%5 |
+| Dayanakta FTREND (tam sermaye) | +%62 (maxDD %9,7) | **+%9,9** |
+
+Sonuç: uzun opsiyon yalnızca güçlü trend dönemlerinde öder; yatay piyasada
+theta + spread, dayanağın kendisinde çalışan stratejiyi bile zarara çevirir.
+Call+put simetrisi boğa piyasasında put bacağı yüzünden çöker. Canlı opsiyon
+emri entegrasyonu bu bulgular ışığında bilinçli olarak eklenmedi.
 
 > ⚠️ Bu uygulama eğitim/simülasyon amaçlıdır; ürettiği sinyaller yatırım tavsiyesi değildir.

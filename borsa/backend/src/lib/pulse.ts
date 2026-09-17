@@ -198,7 +198,8 @@ export async function runPulse(
       if (intel.news.length > 0 && (intel.newsScore == null || intel.newsScore >= 0)) {
         catalystText = `📰 Katalizör: ${intel.news[0].title.slice(0, 80)}`;
       } else if (intel.news.length === 0) {
-        catalystText = '📰 Katalizör yok — bot girmez, sadece izleme';
+        catalystText =
+          '📰 Katalizör yok — açılış lideri penceresi (ilk saat, gün %5-15) dışında bot girmez';
       }
     } catch {
       // istihbarat alınamadı: etiketsiz devam

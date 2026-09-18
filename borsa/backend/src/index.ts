@@ -15,6 +15,7 @@ import { getOrCreatePortfolio, processOpenOrders } from './lib/broker';
 import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
 import { runAllTraders, runTraderCycle, enterFromPulseAlerts } from './lib/trader';
+import { runGapScan } from './lib/gapscan';
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
@@ -148,7 +149,7 @@ export default {
         const { results } = await env.DB
           .prepare('SELECT id, cron, at FROM cron_heartbeat')
           .all<{ id: number; cron: string; at: string }>();
-        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk', 8: 'telegram_error' };
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk', 8: 'telegram_error', 9: 'gapscan' };
         const jobs: Record<string, unknown> = {};
         let newestAge: number | null = null;
         for (const r of results) {
@@ -298,7 +299,12 @@ export default {
         // Kullamägi tarayıcısı seans penceresinden geniş çalışır: açılış öncesi
         // izleme listesi (08:00 NY) ve kapanış sonrası derin tarama da lazım.
         const inKkWindow = day >= 1 && day <= 5 && hour >= 11 && hour <= 22;
+        // Açılış öncesi gap taraması: 12:55-13:25 UTC (16:00 TSİ civarı) tek koşu
+        // — asgari aralık (3 saat) pencere içinde ikinci koşuyu zaten engeller
+        const totalMin = hour * 60 + d.getUTCMinutes();
+        const inGapWindow = day >= 1 && day <= 5 && totalMin >= 775 && totalMin < 805;
         const kinds: JobKind[] = ['gold'];
+        if (inGapWindow) kinds.push('gapscan');
         if (inKkWindow) kinds.push('kk');
         if (inUsSession) kinds.push(...(inScanWindow ? (['scan', 'trader', 'cycle'] as JobKind[]) : (['trader', 'cycle'] as JobKind[])));
         const ran: string[] = [];
@@ -688,11 +694,11 @@ export default {
 // kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
 // (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
 
-type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk';
+type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk' | 'gapscan';
 // DİKKAT: id 4, 5 ve 8 tanı kayıtlarına ayrılmıştır (4=trader_report,
 // 5=trader_attempt, 8=telegram_error — trader.ts yazar). Altın işi id 4'ü kullanınca rapor izinin üstüne yazıyordu
 // (3 Ağu: trader_report kaynağı "alarm" görünüyordu) — altın 6'ya taşındı.
-const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7 };
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7, gapscan: 9 };
 const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
   cycle: 240,
   trader: 540,
@@ -701,6 +707,8 @@ const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
   // Kullamägi tarayıcısı: her 5 dk'lık vuruşta bir tur (tetikler canlı fiyattan,
   // derin tarama dönerek ilerler — bkz. lib/kullamagi.ts bütçe mimarisi)
   kk: 240,
+  // Açılış öncesi gap taraması: sabah penceresinde (12:55-13:25 UTC) tek koşu
+  gapscan: 10800,
 };
 
 // İş yuvasını atomik olarak sahiplen. Tek bir koşullu UPDATE ile hem "vakti
@@ -748,6 +756,11 @@ export async function runScheduledJob(
     if (kind === 'gold') {
       const info = await runGoldWatch(env.DB, env);
       console.log(`Altın bekçisi: ${info}`);
+      return true;
+    }
+    if (kind === 'gapscan') {
+      const info = await runGapScan(env.DB, env);
+      console.log(`Gap taraması: ${info}`);
       return true;
     }
     if (kind === 'kk') {

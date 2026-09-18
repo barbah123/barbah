@@ -55,11 +55,14 @@ export interface PulseResult {
   notified: number;
 }
 
-/** Sıcak sembol hafızası: son günlerde alarm/tarama listesine girenler. */
+/** Sıcak sembol hafızası: son günlerde alarm/tarama listesine girenler.
+ *  Sıralama önemli: çağıranlar bütçe için listeyi kırpar (trader 8, spark 35) —
+ *  en yeni gün ve en yüksek skor (örn. bu sabahki gap adayları) önce gelir. */
 export async function getHotSymbols(db: D1Database): Promise<string[]> {
   const { results } = await db
     .prepare(
-      `SELECT DISTINCT symbol FROM hot_symbols WHERE day >= date('now', ?) LIMIT 60`
+      `SELECT symbol FROM hot_symbols WHERE day >= date('now', ?)
+       GROUP BY symbol ORDER BY MAX(day) DESC, MAX(COALESCE(score, 0)) DESC LIMIT 60`
     )
     .bind(`-${HOT_LOOKBACK_DAYS} days`)
     .all<{ symbol: string }>();

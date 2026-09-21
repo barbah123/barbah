@@ -10,7 +10,14 @@
 import { scanMarket, type ScanCandidate } from './scanner';
 import { getQuotes } from './data';
 import { placeOrder } from './broker';
-import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import {
+  sendTelegram,
+  telegramConfigured,
+  getTelegramLastError,
+  getTelegramRetryAfterSec,
+  type TelegramEnv,
+} from './telegram';
+import { resetSubreq, subreqCount } from './subreq';
 import { getIntel, getRedditBuzzMap } from './intel';
 import { getHotSymbols } from './pulse';
 
@@ -70,6 +77,12 @@ const DATA_FRESH_SECONDS = 30 * 60;
 // 22 Tem: 8→6 (kullanıcı kararı) — tavana en yakın giriş PLBL +%7.99 en sert
 // stop yiyendi; en büyük kazananlar %4.6-6.7 bandından geldi.
 const MAX_ENTRY_DAY_PCT = 6;
+// Açılış lideri nabız istisnası (17 Eyl, kullanıcı onayı — TEM vakası):
+// açılıştan sonraki ilk saatte gün %5-15 bandındaki hacim patlamalı liderlere
+// katalizör şartı aranmadan yarım riskle nabız girişi serbesttir.
+const OPENING_LEADER_WINDOW_MIN = 60;
+const OPENING_LEADER_MIN_DAY_PCT = 5;
+const OPENING_LEADER_MAX_DAY_PCT = 15;
 // Günlük zarar freni: gün içi gerçekleşen zarar özkaynağın bu yüzdesini aşarsa
 // o gün yeni pozisyon açılmaz (çıkış/stop yönetimi çalışmaya devam eder).
 // 6 Tem dersi: bot her stop sonrası slotu hemen doldurup kanamayı büyüttü.
@@ -583,9 +596,6 @@ export async function enterFromPulseAlerts(
   telegram: TelegramEnv,
   alerts: { symbol: string; price: number; change_15m: number; day_change: number }[]
 ): Promise<number> {
-  const viable = alerts.filter((a) => a.day_change <= MAX_ENTRY_DAY_PCT);
-  if (!viable.length) return 0;
-
   // Seans dışında veya kapanışa yakın giriş yok
   const minutes = nowMinutesUtc();
   const canEnter =
@@ -593,6 +603,23 @@ export async function enterFromPulseAlerts(
     minutes >= SESSION_OPEN_MIN &&
     minutes < SESSION_CLOSE_MIN - FLATTEN_BEFORE_MIN;
   if (!canEnter) return 0;
+
+  // AÇILIŞ LİDERİ istisnası (17 Eyl, kullanıcı onayı): TEM açılışta 40 dakikada
+  // +3→+15% koştu ama ısınma penceresi + %6 tavanı yüzünden hiç değerlendirilemedi.
+  // Açılıştan sonraki ilk saatte, gün %5-15 bandındaki hacim teyitli liderlere
+  // katalizör aranmadan YARIM riskle giriş serbesttir; %6 tavanı bu dar pencerede
+  // esnetilir. Diğer tüm kapılar (fren, slot, soğuma, istihbarat blokajı) aynen geçerli.
+  const openingWindow =
+    minutes >= SESSION_OPEN_MIN && minutes < SESSION_OPEN_MIN + OPENING_LEADER_WINDOW_MIN;
+  const isOpeningLeader = (dayPct: number) =>
+    openingWindow &&
+    dayPct >= OPENING_LEADER_MIN_DAY_PCT &&
+    dayPct <= OPENING_LEADER_MAX_DAY_PCT;
+
+  const viable = alerts.filter(
+    (a) => a.day_change <= MAX_ENTRY_DAY_PCT || isOpeningLeader(a.day_change)
+  );
+  if (!viable.length) return 0;
 
   const { results: configs } = await db
     .prepare('SELECT * FROM bot_config WHERE enabled = 1')
@@ -642,17 +669,23 @@ export async function enterFromPulseAlerts(
       const intel = await getIntel(alert.symbol).catch(() => null);
       if (intel?.blockEntry) continue;
       // Katalizör şartı: haberli isimler kazandı (BCRX/RBC), habersizler öğütüldü
-      // (BEAM -$411). Katalizörsüz alarm bilgilendirme olarak kalır, işleme dönmez.
+      // (BEAM -$411). Katalizörsüz alarm bilgilendirme olarak kalır, işleme dönmez —
+      // TEK istisna açılış lideri penceresi (yukarıda), o da yarım riskle.
       const hasCatalyst =
         intel != null &&
         intel.news.length > 0 &&
         (intel.newsScore == null || intel.newsScore >= 0);
-      if (!hasCatalyst) continue;
+      const normalPath = alert.day_change <= MAX_ENTRY_DAY_PCT && hasCatalyst;
+      const openingLeader = isOpeningLeader(alert.day_change);
+      if (!normalPath && !openingLeader) continue;
 
+      const entryConfig = normalPath
+        ? config
+        : { ...config, risk_per_trade_pct: config.risk_per_trade_pct / 2 };
       const res = await executeEntry(
         db,
         portfolioId,
-        config,
+        entryConfig,
         equity,
         cash,
         {
@@ -661,7 +694,10 @@ export async function enterFromPulseAlerts(
           momentumPercent: alert.change_15m,
           dayChangePercent: alert.day_change,
         },
-        ['⚡ nabız girişi', ...(intel?.notes ?? [])],
+        [
+          normalPath ? '⚡ nabız girişi' : '🌅 açılış lideri — yarım risk',
+          ...(intel?.notes ?? []),
+        ],
         '15dk'
       );
       if (res.action && res.spent > 0) {
@@ -763,6 +799,10 @@ export async function runTraderCycle(
     return { ...empty, skippedReason: 'Piyasa kapalı (ABD seansı dışı)' };
   }
 
+  // Tanı: dış çağrı sayacı bu döngü için sıfırlanır (bkz. subreq.ts) —
+  // "Too many subrequests" hatasında gerçek sayı [fetch=N] olarak kaydedilir.
+  resetSubreq();
+
   // Başlangıç izi (id=5): koşum yarıda kesilirse bile "denendi" kaydı kalır.
   // trader_attempt > trader_report ise koşumlar rapora ulaşamadan ölüyor demektir
   // (21 Tem: cron bağlamındaki koşumlar iz bırakmadan kesildi — teşhis için).
@@ -773,8 +813,10 @@ export async function runTraderCycle(
       .catch(() => {});
   }
 
-  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil)
-  const hotSymbols = await getHotSymbols(db).catch(() => [] as string[]);
+  // 1. Piyasa analizi (sıcak semboller — son günlerin hareketlileri — dahil).
+  // Sıcak liste 60'a kadar büyüyebilir ve her sembol 1 aggregates çağrısı:
+  // trader bütçesinde rapor/fiyat payı kalması için burada kırpılır (3 Eyl).
+  const hotSymbols = (await getHotSymbols(db).catch(() => [] as string[])).slice(0, 8);
   const snapshot = await scanMarket(hotSymbols);
   // Bayat veri İŞLEMİ engeller ama RAPORU engellemez: eskiden burada erken
   // dönüyorduk ve kaynak gecikmesi yaşandığı sürece raporlar tamamen susuyordu
@@ -830,7 +872,11 @@ export async function runTraderCycle(
     .prepare('SELECT symbol, quantity, avg_cost FROM positions WHERE portfolio_id = ?')
     .bind(portfolioId)
     .all<{ symbol: string; quantity: number; avg_cost: number }>();
-  const symbols = [...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)])];
+  // Fiyat listesi de bütçeden düşer (sembol başına 1 çağrı olabilir):
+  // açık işlemler önce (rapor için kritik), toplam 12 ile sınırla (7 Eyl).
+  const symbols = [
+    ...new Set([...openTrades.map((t) => t.symbol), ...allPositions.map((p) => p.symbol)]),
+  ].slice(0, 12);
   const quotes = symbols.length ? await getQuotes(symbols) : [];
   const priceMap = new Map(quotes.map((q) => [q.symbol, q.price]));
 
@@ -870,8 +916,13 @@ export async function runTraderCycle(
     );
     if (telegramConfigured(env)) {
       reported = await sendTelegram(env, report);
-      // Tek yeniden deneme: geçici ağ/limit hatasında raporu sessizce yutma
-      if (!reported) reported = await sendTelegram(env, report);
+      // Yeniden deneme: anlık tekrar 429'a takılır — retry_after kadar
+      // (üst sınır 25 sn) bekle. Trader HTTP bağlamında koşar, bekleme güvenli.
+      if (!reported) {
+        const waitSec = Math.min(Math.max(getTelegramRetryAfterSec(), 4), 25);
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+        reported = await sendTelegram(env, report);
+      }
     }
     // Gözlemlenebilirlik: son rapor denemesinin sonucu kalp atışına yazılır
     // (id=4 → /api/health'te trader_report olarak görünür). Hangi döngülerin
@@ -883,6 +934,18 @@ export async function runTraderCycle(
         )
         .bind(reported ? 'ok' : 'fail')
         .run();
+      // Hata metni id=8'e (telegram_error): console kalıcı olmadığından art arda
+      // 'fail' turlarında neden (429/400/ağ) ancak buradan okunabiliyor.
+      if (!reported) {
+        await db
+          .prepare(
+            "INSERT OR REPLACE INTO cron_heartbeat (id, cron, at) VALUES (8, ?, datetime('now'))"
+          )
+          .bind(
+            `[fetch=${subreqCount()}] ${(getTelegramLastError() ?? 'bilinmiyor')}`.slice(0, 120)
+          )
+          .run();
+      }
     } catch {
       // tanı kaydı asıl akışı engellemesin
     }

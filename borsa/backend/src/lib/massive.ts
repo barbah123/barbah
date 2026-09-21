@@ -6,6 +6,7 @@
 
 import type { Quote, Candle } from './data';
 import type { SparkSeries } from './scanner';
+import { bumpSubreq } from './subreq';
 
 const BASE = 'https://api.massive.com';
 
@@ -19,6 +20,7 @@ export function massiveConfigured(): boolean {
 
 async function mFetch(path: string): Promise<any> {
   if (!API_KEY) throw new Error('MASSIVE_API_KEY tanımlı değil');
+  bumpSubreq();
   const sep = path.includes('?') ? '&' : '?';
   const res = await fetch(`${BASE}${path}${sep}apiKey=${encodeURIComponent(API_KEY)}`, {
     headers: { Accept: 'application/json' },

@@ -506,6 +506,120 @@ async function refreshBot() {
   });
 }
 
+// --- Kullamägi kurulum tarayıcısı ---
+const KK_SETUP_TR = {
+  breakout: '🚀 Breakout',
+  episodic_pivot: '📣 Episodic Pivot',
+  parabolic_short: '⚡ Parabolik Short',
+  parabolic_watch: '⚡ Parabolik izleme',
+};
+
+async function refreshKk() {
+  const { state, watch, signals } = await api('/api/kk');
+  const panel = document.getElementById('tab-kk');
+  const breakouts = watch.filter((w) => w.setup === 'breakout');
+  const paras = watch.filter((w) => w.setup === 'parabolic_watch');
+  const num = (v, d = 2) => (v == null ? '—' : Number(v).toFixed(d));
+
+  panel.innerHTML = `
+    <div class="strategy-form">
+      <label><input id="kkEnabled" type="checkbox" ${state?.enabled ? 'checked' : ''} /> <b>KK tarayıcı etkin</b></label>
+      <span class="muted">İzlenen kurulum: <b>${watch.length}</b> · asgari gap %${num(state?.min_gap_pct, 0)} ·
+        likidite tabanı $${num((state?.min_dollar_vol ?? 0) / 1e6, 1)}M</span>
+      <button id="kkRun" class="btn ghost small">▶ Şimdi tara</button>
+      <span id="kkMsg" class="muted"></span>
+    </div>
+
+    <h3>Kırılım adayları (konsolidasyon)</h3>
+    ${
+      breakouts.length
+        ? `<table><thead><tr>
+            <th>Sembol</th><th>Fiyat</th><th>Pivot</th><th>Baz</th><th>Derinlik</th>
+            <th>Sıkılık</th><th>Hacim</th><th>ADR</th><th>3a</th><th>Stop bölgesi</th>
+          </tr></thead><tbody>${breakouts
+            .map(
+              (w) => `<tr>
+              <td><b class="link" data-symbol="${esc(w.symbol)}">${esc(w.symbol)}</b></td>
+              <td>${fmtMoney(w.price ?? 0)}</td>
+              <td><b>${fmtMoney(w.pivot ?? 0)}</b></td>
+              <td>${w.base_len ?? '—'} gün</td>
+              <td>%${num(w.depth_pct, 1)}</td>
+              <td>${num(w.tightness)}</td>
+              <td>${num(w.vol_dryup)}x</td>
+              <td>%${num(w.adr_pct, 1)}</td>
+              <td class="${cls(w.gain_3m ?? 0)}">${fmtPct(w.gain_3m ?? 0)}</td>
+              <td>${fmtMoney(w.base_low ?? 0)} / ${esc(w.ma_ref ?? '')} ${fmtMoney(w.ma_level ?? 0)}</td>
+            </tr>`
+            )
+            .join('')}</tbody></table>`
+        : '<div class="empty">Şu an sıkı konsolidasyonda aday yok.</div>'
+    }
+
+    <h3>Parabolik — dönüş beklenenler</h3>
+    ${
+      paras.length
+        ? `<table><thead><tr>
+            <th>Sembol</th><th>Fiyat</th><th>20 EMA uzaklığı</th><th>Tetik (altı)</th><th>Not</th>
+          </tr></thead><tbody>${paras
+            .map(
+              (w) => `<tr>
+              <td><b class="link" data-symbol="${esc(w.symbol)}">${esc(w.symbol)}</b></td>
+              <td>${fmtMoney(w.price ?? 0)}</td>
+              <td class="down">%${num(w.ext_pct, 0)}</td>
+              <td>${fmtMoney(w.trigger_below ?? 0)}</td>
+              <td style="text-align:left">${esc(w.note ?? '')}</td>
+            </tr>`
+            )
+            .join('')}</tbody></table>`
+        : '<div class="empty">Parabolik aday yok.</div>'
+    }
+
+    <h3>Son sinyaller</h3>
+    ${
+      signals.length
+        ? `<table><thead><tr>
+            <th>Zaman</th><th>Sembol</th><th>Kurulum</th><th>Giriş</th><th>Stop</th>
+            <th>Risk</th><th>Hacim</th><th>Detay</th>
+          </tr></thead><tbody>${signals
+            .map(
+              (s) => `<tr>
+              <td>${fmtTime(s.created_at)}</td>
+              <td><b class="link" data-symbol="${esc(s.symbol)}">${esc(s.symbol)}</b></td>
+              <td><span class="pill ${s.side === 'long' ? 'buy' : 'sell'}">${KK_SETUP_TR[s.setup] ?? esc(s.setup)}</span></td>
+              <td>${fmtMoney(s.entry)}</td>
+              <td>${fmtMoney(s.stop)}</td>
+              <td>%${num(s.risk_pct)}</td>
+              <td>${s.rel_volume == null ? '—' : num(s.rel_volume, 1) + 'x'}</td>
+              <td style="text-align:left">${esc(s.detail ?? '')}</td>
+            </tr>`
+            )
+            .join('')}</tbody></table>`
+        : '<div class="empty">Henüz KK sinyali üretilmedi.</div>'
+    }
+    <p class="muted">Sinyaller Telegram'a da gider. Kurulum tespiti günlük mumlarla dönerek
+      yenilenir; tetikler seans içinde canlı fiyatla kontrol edilir.</p>
+  `;
+
+  panel.querySelectorAll('[data-symbol]').forEach((el) => {
+    el.addEventListener('click', () => selectSymbol(el.dataset.symbol));
+  });
+  document.getElementById('kkEnabled').addEventListener('change', async (e) => {
+    await api('/api/kk', { method: 'PATCH', body: JSON.stringify({ enabled: e.target.checked }) });
+    refreshKk();
+  });
+  document.getElementById('kkRun').addEventListener('click', async () => {
+    const msg = document.getElementById('kkMsg');
+    msg.textContent = 'Taranıyor...';
+    try {
+      const r = await api('/api/kk/run', { method: 'POST' });
+      msg.textContent = `${r.phase} · evren ${r.universe} · derin tarama ${r.refreshed} · sinyal ${r.signals.length}`;
+      refreshKk();
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  });
+}
+
 // --- Sekmeler ---
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -517,6 +631,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
     if (tab.dataset.tab === 'signals') refreshSignals();
     if (tab.dataset.tab === 'strategies') refreshStrategies();
     if (tab.dataset.tab === 'bot') refreshBot();
+    if (tab.dataset.tab === 'kk') refreshKk();
   });
 });
 

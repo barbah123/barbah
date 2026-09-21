@@ -15,6 +15,7 @@ borsa/backend/src/
 │   ├── scanner.ts     → TARAMA            (80 hisselik evrende day-trade adayları)
 │   ├── intel.ts       → İSTİHBARAT        (haber + bilanço takvimi + Reddit/Stocktwits)
 │   ├── trader.ts      → OTONOM TRADER     (analiz→risk→giriş/çıkış→inceleme→rapor)
+│   ├── kullamagi.ts   → KK TARAYICI       (breakout / episodic pivot / parabolik short)
 │   └── telegram.ts    → BİLDİRİM          (sinyal + tarama + bot raporları Telegram'a)
 ├── routes/            → REST API uçları
 └── index.ts           → yönlendirme + cron tetikleyicileri
@@ -86,6 +87,8 @@ Korumalar: piyasa kapaliysa veya veri bayatsa işlem yapmaz; stop yenen sembole 
 - `*/5 13-21 * * 1-5` — 5 dakikada bir: açık limit emirlerini doldur + etkin stratejileri çalıştır (sinyaller Telegram'a gider).
 - `40 13,17,19 * * 1-5` — günde 3 kez (açılış sonrası ~16:40 TSİ, öğlen, kapanışa doğru): **day-trade taraması** → en iyi 5 aday Telegram'a.
 - `*/10 13-20 * * 1-5` — her 10 dakikada: **otonom trader döngüsü + Telegram raporu**.
+- Her 5 dakikada (hafta içi UTC 11-22): **Kullamägi kurulum tarayıcısı** — kırılım /
+  episodic pivot / parabolik dönüş sinyalleri ve açılış öncesi izleme listesi.
 
 Manuel tarama: `POST /api/scan` (Telegram'a da gönderir), `GET /api/scan` (sadece sonucu döner).
 Manuel bot döngüsü: `POST /api/bot/run` (`?force=1` piyasa kapalıyken test için).
@@ -108,7 +111,70 @@ Tüm portföy uçları `X-Device-Id` başlığı ister (istemciler otomatik üre
 - `GET/POST/DELETE /api/watchlist`
 - `GET/POST/PATCH/DELETE /api/strategies` · `POST /api/strategies/run` · `GET /api/signals`
 - `GET|POST /api/scan` — day-trade adayı taraması
+- `GET/PATCH /api/kk` · `POST /api/kk/run` · `GET /api/kk/analyze?symbol=` — Kullamägi tarayıcısı
 - `GET /api/ftrend?symbol=GC=F&interval=1h&range=730d&mode=long` — FTREND optimizasyon + backtest
+
+## Kullamägi kurulum tarayıcısı (KK)
+
+Kristjan Kullamägi'nin ("Qullamaggie") üç kurulumunu likit ABD hisselerinde arar
+ve bulduğunu **Telegram'a giriş/stop/hedef seviyeleriyle** yollar. Kod:
+`backend/src/lib/kullamagi.ts`, arayüz: **📈 KK** sekmesi.
+
+### 1. Breakout — sağlam konsolidasyondan çıkış
+
+Önce büyük bir hareket (1 ayda ≥ %20 / 3 ayda ≥ %30 / 6 ayda ≥ %60), sonra
+**sıkı bir baz**: 3-60 günlük konsolidasyon, ADR'ye göre sınırlı derinlik
+(en fazla 3 × ADR, tavan %35), **daralan menzil** (ikinci yarı / ilk yarı ≤ 1.15)
+ve **kuruyan hacim**. Fiyat referans ortalamanın üstünde tutunmalı (kısa bayrak
+10 EMA, orta 20 EMA, uzun baz 50 SMA) ve pivotun atış menzilinde olmalı.
+
+Tetik: **konsolidasyon tepesinin (pivot) kırılışı** — ve kırılış hacimle gelmeli
+(saat eşleşmeli göreli hacim ≥ 1.5x). Pivotun bir ADR'sinden fazla uzaklaşmış
+fiyat kovalanmaz (üstünden gap'leyip kaçan hisse sinyal üretmez). Stop: 10/20 EMA,
+gün düşüğü ya da baz dibinden **girişe en yakın olanı** (en fazla 2.5 ADR). Hedef:
+3-5 günde 2-3 ADR → pozisyonun 1/3-1/2'sini sat, kalanı ortalamayla trail et.
+
+### 2. Episodic pivot — beklenmedik katalizör + olağanüstü hacim
+
+Aylardır uyuyan hisse (önceki 3 ay ≤ %40) bir haberle **≥ %8 gap** açar, gap'i
+gün boyu korur, hacmi normalin **≥ 3 katı** ve gün içinde ≥ $5M döner. Katalizör
+haber akışından etiketlenir (bulunamazsa sinyal yine gider, "katalizör görünmüyor"
+notuyla). Giriş: **açılış aralığının (ilk 5 dk) tepesi**, stop: aralığın dibi.
+Fiyat giriş bölgesinin bir ADR üstündeyse mesaj "kovalama" uyarısı taşır.
+
+### 3. Parabolik short — aşırı hareket sonrası dönüş
+
+3 günde ≥ %35 / 5 günde ≥ %60 / 10 günde ≥ %100 yükselmiş ve **20 EMA'dan ≥ %30
+uzaklaşmış** hisseler izlemeye alınır. Sinyal ancak **dönüş teyit olunca** üretilir:
+önceki günün düşüğü kırılır ve gün kırmızıdır (yükselirken asla short'lanmaz).
+Stop dünün/bugünün tepesi, hedef 10/20 EMA bölgesi. Tetiğin bir ADR altına
+düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
+
+### Nasıl çalışır (bütçe mimarisi)
+
+Cloudflare Worker istek başına ~50 alt-istek verir; kurulum taraması ise sembol
+başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
+
+1. **Derin tarama (yavaş, günlük)** — her koşuda `refresh_batch` kadar sembol
+   (varsayılan 10) günlük mumlarla analiz edilir ve `kk_watch` tablosuna
+   pivot/tetik seviyeleriyle yazılır. Sıra "en uzun süredir bakılmayan" sembole
+   göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası.
+2. **Tetik (hızlı, canlı)** — her koşuda tüm piyasa **tek snapshot** çağrısıyla
+   alınır ve saklanan seviyelerle kıyaslanır. Yalnızca tetiklenen avuç dolusu aday
+   için gün içi hacim / açılış aralığı / haber çekilir.
+
+Ek olarak her sabah **08:00-09:25 NY** arasında günün **izleme listesi** gönderilir:
+kırılım adayları pivot ve stop bölgeleriyle, parabolik izlemedekiler tetik
+seviyeleriyle. Seans ve yaz saati kapıları New York saatine göre hesaplanır.
+
+Soğuma (aynı sembol+kurulum): breakout 3 gün, episodic pivot 5 gün, parabolik 2 gün.
+Mesajlarda pozisyon boyutu önerisi de var: %0,5 hesap riski ÷ stop mesafesi.
+
+- `GET /api/kk` — yapılandırma + izlenen kurulumlar + son sinyaller
+- `PATCH /api/kk` — `{enabled, min_price, min_dollar_vol, min_gap_pct, refresh_batch, universe_max}`
+- `POST /api/kk/run` — manuel koşu (`?force=1` seans/veri kapılarını atlar,
+  `?notify=0` Telegram'sız, `?batch=N` derin tarama adedi)
+- `GET /api/kk/analyze?symbol=NVDA` — tek sembol tanısı: kurulum neden var/yok
 
 ## FTREND stratejisi (altın / trend takibi)
 

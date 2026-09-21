@@ -64,7 +64,12 @@ const MAX_EP_INTEL = 2; // istihbarat (sembol başına ~4 istek)
 const MAX_PARA_SIGNALS = 3;
 const YAHOO_LIVE_CAP = 30; // Massive yoksa canlı fiyat çekilen sembol tavanı
 const REFRESH_TTL_HOURS = 20; // aynı sembolü günde bir kez derin tara
-const WATCH_STALE_DAYS = 5; // bu kadar gün tazelenmemiş kurulum tetiklenmez
+const WATCH_STALE_DAYS = 5; // bu kadar gün tazelenmemiş kurulum listelenmez
+// Tetik için ayrı, daha sıkı tazelik: seviyeler günlük mumlardan hesaplanır,
+// aradan seans geçtiyse baz çoktan bozulmuş olabilir. 3 gün hafta sonunu
+// tolere eder (Cuma kapanışında hesaplanan seviye Pazartesi açılışında geçerli)
+// ama atlanmış seansları etmez.
+const TRIGGER_MAX_AGE_DAYS = 3;
 
 // ---- Zaman yardımcıları (New York seansı, DST dahil) ----
 
@@ -288,7 +293,24 @@ export function analyzeDaily(
     const tightness = r1 > 0 ? r2 / r1 : 1;
     const v1 = mean(firstHalf.map((b) => b.v));
     const v2 = mean(secondHalf.map((b) => b.v));
-    const volDryUp = v1 > 0 ? v2 / v1 : 1;
+    const halfDryUp = v1 > 0 ? v2 / v1 : 1;
+
+    // KISA BAYRAK (≤5 gün) ÖLÇÜMÜ: yarı-yarıya kıyas burada 2 barı 1 bara
+    // bölmek demektir — gürültü. Onun yerine mutlak ölçüler kullanılır:
+    //   sıkılık → son günlerin toplam menzili ADR'nin kaç katı
+    //   hacim   → bazın hacmi, yükseliş bacağının hacminin kaç katı
+    // (KK'nin bazda aradığı da budur: koşuya göre sakinleşen hacim.)
+    const shortBase = baseLen <= 5;
+    const lastRangePct = rangePct(after.slice(-3));
+    const runLeg = window.slice(Math.max(0, pivotIdx - 10), pivotIdx);
+    const runVol = mean(runLeg.map((b) => b.v));
+    const baseVol = mean(after.map((b) => b.v));
+    const volVsRun = runVol > 0 ? baseVol / runVol : 1;
+    // Kaydedilen ölçüler, o baz için gerçekten UYGULANAN ölçülerdir: aksi halde
+    // tabloda kullanılmayan bir orana bakıp "bu neden kabul edilmiş?" denir.
+    // İkisinde de küçük = sıkı/sakin.
+    const volDryUp = shortBase ? volVsRun : halfDryUp;
+    const tightMeasure = shortBase && adr > 0 ? lastRangePct / adr : tightness;
 
     // Baz uzadıkça referans ortalama yavaşlar (KK: kısa bayrak 10 EMA,
     // orta 20 EMA, uzun baz 50 SMA ile takip edilir).
@@ -298,25 +320,50 @@ export function analyzeDaily(
     const distPct = ((pivot - price) / price) * 100;
 
     // Derinlik toleransı oynaklığa göre: ADR'si yüksek hisse doğal olarak daha
-    // derin nefes alır, ama %35'i geçen geri çekilme artık bayrak değildir.
-    const maxDepth = Math.min(35, Math.max(8, adr * 3));
+    // derin nefes alır, ama 2,5 ADR'yi (ve %25'i) geçen geri çekilme bayrak
+    // değil düzeltmedir. ADR ölçekli tolerans ÜSTTEN de sınırlanır: 27 Ağu'da
+    // canlı taramada ADR %11 olan MRNA, pivotunun %18 altındayken ve %27
+    // derinlikle "konsolidasyon" sayılıyordu.
+    const maxDepth = Math.min(25, Math.max(8, adr * 2.5));
     const structureOk =
       depthPct <= maxDepth &&
-      tightness <= 1.15 && // menzil genişlemiyor (ideali daralıyor)
+      // menzil daralıyor / sıkı (genişleyen baz kurulum değil)
+      (shortBase ? lastRangePct <= adr * 2.2 : tightness <= 1.05) &&
+      volDryUp <= 1.05 && // hacim kuruyor — KK'nin bazda aradığı asıl teyit
       maLevel > 0 &&
       price >= maLevel * 0.97 && // ortalamanın üstünde tutunuyor
-      distPct <= Math.max(6, adr * 2); // pivot atış menzilinde
+      // Bayrak zirvenin dibinde olur: fiyat pivotun 1,5 ADR'sinden (en çok %12)
+      // uzaktaysa kurulum henüz olgunlaşmamıştır.
+      distPct <= Math.min(12, Math.max(4, adr * 1.5));
 
     if (structureOk) {
       base_.setup = 'breakout';
-      base_.base = { pivot, low, len: baseLen, depthPct, tightness, volDryUp, maRef, maLevel, distPct };
+      base_.base = {
+        pivot,
+        low,
+        len: baseLen,
+        depthPct,
+        tightness: tightMeasure,
+        volDryUp,
+        maRef,
+        maLevel,
+        distPct,
+      };
+      // Sıkılık puanı ölçüye göre normalize edilir: kısa bazda ölçek 0-2,2
+      // (menzil/ADR), uzun bazda 0-1,2 (yarı oranı). Aynı formülü ikisine
+      // uygulamak kısa bayrakları haksız yere cezalandırırdı.
+      const tightScore = shortBase
+        ? Math.max(0, Math.min(25, (2.2 - tightMeasure) * 12))
+        : Math.max(0, Math.min(25, (1.2 - tightMeasure) * 25));
       base_.score =
         Math.min(60, Math.max(g1, g3 / 2, g6 / 4)) + // momentum lideri mi
-        Math.max(0, Math.min(25, (1.2 - tightness) * 25)) + // daralma
+        tightScore + // daralma / sıkılık
         Math.max(0, Math.min(20, (1.1 - volDryUp) * 20)) + // hacim kuruması
         Math.min(15, adr * 2) - // oynaklık (hareket potansiyeli)
         distPct; // pivota uzaklık cezası
-      base_.note = `${baseLen} günlük baz, derinlik %${depthPct.toFixed(1)}`;
+      base_.note =
+        `${baseLen} günlük baz, derinlik %${depthPct.toFixed(1)}, ` +
+        (shortBase ? 'sıkılık = son 3 gün menzili / ADR' : 'sıkılık = ikinci yarı / ilk yarı menzili');
       return base_;
     }
   }
@@ -500,6 +547,9 @@ interface LiveRow {
   dayChangePercent: number;
   gapPercent: number;
   dollarVolToday: number | null;
+  // KK'nin stop referansları: kırılımda günün düşüğü, short'ta günün tepesi
+  dayLow: number | null;
+  dayHigh: number | null;
   lastTime: number;
 }
 
@@ -523,6 +573,8 @@ async function liveMarket(
           dayChangePercent: r.dayChangePercent,
           gapPercent: r.gapPercent,
           dollarVolToday: r.liquidity * r.price,
+          dayLow: r.dayLow,
+          dayHigh: r.dayHigh,
           lastTime: r.lastTime,
         });
       }
@@ -550,6 +602,10 @@ async function liveMarket(
       dayChangePercent: ((price - s.previousClose) / s.previousClose) * 100,
       gapPercent: first ? ((first - s.previousClose) / s.previousClose) * 100 : 0,
       dollarVolToday: null,
+      // Yahoo yolunda yalnızca kapanış serisi var: gün düşüğü/tepesi yaklaşık
+      // (bar içi uçları göremez, bu yüzden gerçek düşükten biraz yüksektir)
+      dayLow: Math.min(...s.close),
+      dayHigh: Math.max(...s.close),
       lastTime: s.lastTime,
     });
   }
@@ -690,7 +746,12 @@ async function checkTriggers(
   live: Map<string, LiveRow>,
   options: { notify: boolean; force: boolean }
 ): Promise<KKSignalRow[]> {
-  const watch = await getKKWatch(db, 200);
+  const all = await getKKWatch(db, 200);
+  // Bayat seviyelerle sinyal üretilmez (bkz. TRIGGER_MAX_AGE_DAYS)
+  const maxAgeMs = TRIGGER_MAX_AGE_DAYS * 24 * 3600 * 1000;
+  const watch = all.filter(
+    (w) => Date.now() - Date.parse(w.checked_at.replace(' ', 'T') + 'Z') <= maxAgeMs
+  );
   const signals: KKSignalRow[] = [];
 
   // --- Breakout: canlı fiyat konsolidasyon tepesini aştı mı? ---
@@ -721,14 +782,22 @@ async function checkTriggers(
     // Giriş fiili fiyattır (pivot tetiktir); stop her zaman girişin ALTINDA
     // olmalı — aksi halde risk hesabı ters döner.
     const entry = l.price;
-    // Stop adayları: MA seviyesi, son günün düşüğü, baz dibi. KK sıkı stop
-    // sever (günün düşüğü); ama girişe göre 2.5 ADR'den geniş stop alınmaz.
+    // Stop adayları: KK'nin ilk tercihi GÜNÜN DÜŞÜĞÜ; yoksa/çok yakınsa MA
+    // seviyesi, önceki günün düşüğü ya da baz dibi. Girişe göre 2.5 ADR'den
+    // geniş stop alınmaz; 0.5 ADR'den yakın stop da gürültüye yem olur.
     const maxRisk = Math.max(0.03, Math.min(0.12, (adr * 2.5) / 100));
+    const minRisk = Math.max(0.005, (adr * 0.5) / 100);
     const floor = entry * (1 - maxRisk);
-    const candidates = [w.ma_level, w.last_low, w.base_low]
+    const ceil = entry * (1 - minRisk);
+    const candidates = [l.dayLow, w.ma_level, w.last_low, w.base_low]
       .filter((v): v is number => typeof v === 'number' && v > 0 && v < entry)
-      .filter((v) => v >= floor);
+      .filter((v) => v >= floor && v <= ceil);
     const stop = candidates.length ? Math.max(...candidates) : floor;
+    const stopRef = !candidates.length
+      ? 'risk sınırı (2,5 ADR — yapısal seviye çok uzak)'
+      : l.dayLow != null && stop === l.dayLow
+        ? 'günün düşüğü'
+        : `${w.ma_ref ?? 'MA'} / baz dibi`;
     const riskPct = ((entry - stop) / entry) * 100;
     const target = entry * (1 + (adr * 2.5) / 100); // 3-5 günde 2-3 ADR
 
@@ -738,7 +807,7 @@ async function checkTriggers(
       `Konsolidasyon: ${w.base_len} gün, derinlik %${(w.depth_pct ?? 0).toFixed(1)}, ` +
       `sıkılık ${(w.tightness ?? 1).toFixed(2)}, hacim kuruması ${(w.vol_dryup ?? 1).toFixed(2)}x\n` +
       `Momentum: 1a ${pct0(w.gain_1m ?? 0)} | 3a ${pct0(w.gain_3m ?? 0)} | ADR %${adr.toFixed(1)}\n` +
-      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${w.ma_ref ?? 'MA'} / gün düşüğü\n` +
+      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${stopRef}\n` +
       `🎯 3-5 günde 2-3 ADR (≈ ${usd(target)}) → 1/3-1/2 sat, kalanı ${w.ma_ref ?? '10 EMA'} ile trail\n` +
       sizingLine(riskPct);
 
@@ -787,15 +856,34 @@ async function checkTriggers(
     // Giriş fiili fiyattır; tetik seviyesi ayrıca yazılır. Stop dünün/bugünün
     // tepesi — short'ta stop girişin ÜSTÜNDE olmalı.
     const entry = l.price;
-    const stop = w.last_high && w.last_high > entry ? w.last_high : entry * 1.15;
+    const highRefs = [l.dayHigh, w.last_high].filter(
+      (v): v is number => typeof v === 'number' && v > entry
+    );
+    // Günün tepesi ile dünün tepesinden HANGİSİ daha yakınsa o: short stop'u
+    // kırılan seviyenin hemen üstünde durur, gereksiz geniş risk alınmaz.
+    if (!highRefs.length) continue;
+    const stop = Math.min(...highRefs);
+    // RİSK TAVANI: short'ta uydurma stop olmaz (tepenin üstü neresi ise orasıdır),
+    // o yüzden tavanı aşan aday sinyal üretmez — atlanır. 27 Ağu'da CRE gün içinde
+    // $8.60'tan $5.45'e çökmüştü; tetik kırılalı çok olduğu için dünün tepesine
+    // göre risk %57,8 çıkıyor ve bu sinyal "işlenebilir" değil, geç kalmış demektir.
+    // Not: bu kapı `force` ile de atlanmaz. force seans/veri kapılarını atlamak
+    // içindir; risk tavanı ise sinyalin geçerliliğiyle ilgilidir — atlanırsa
+    // manuel koşu anlamsız risk taşıyan sinyal üretir.
+    const maxShortRisk = Math.min(0.3, Math.max(0.05, (adr * 2.5) / 100));
+    if (stop > entry * (1 + maxShortRisk)) continue;
+    const stopRef = l.dayHigh != null && stop === l.dayHigh ? 'bugünün tepesi' : 'dünün tepesi';
     const riskPct = ((stop - entry) / entry) * 100;
     const target = w.ma_level && w.ma_level < entry ? w.ma_level : entry * 0.7;
 
     const message =
       `⚡ <b>KK PARABOLİK SHORT — ${w.symbol}</b> ${usd(l.price)} (${pct(l.dayChangePercent)})\n` +
       `Aşırı hareket: ${w.note ?? ''}\n` +
-      `Tetik: önceki gün düşüğü ${usd(w.trigger_below!)} kırıldı → ilk kırmızı gün / dönüş teyidi\n` +
-      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — dünün/bugünün tepesi\n` +
+      // "ilk kırmızı gün" her zaman doğru değil: hisse dünden de düşmüş olabilir
+      // (28 Ağu MRNA sinyali böyleydi, üst üste yükseliş 0 gün). Nüansı not
+      // satırı taşıyor; başlık iddiasız kalıyor.
+      `Tetik: önceki gün düşüğü ${usd(w.trigger_below!)} kırıldı → dönüş teyidi\n` +
+      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ${stopRef}\n` +
       `🎯 10/20 EMA bölgesi ≈ ${usd(target)}; günler içinde parça parça kapat\n` +
       sizingLine(riskPct) +
       `\n⚠️ Short riski asimetriktir: borç bulma maliyeti, gap ve halt riski — küçük boyut.`;
@@ -1016,10 +1104,14 @@ async function maybeSendWatchlist(
   cfg: KKState,
   min: number,
   day: string,
-  force: boolean
+  opts: { force: boolean; resend: boolean }
 ): Promise<boolean> {
-  const due = force || (isWeekday() && min >= WATCHLIST_WINDOW.from && min < WATCHLIST_WINDOW.to);
-  if (!due || cfg.last_watchlist_day === day) return false;
+  // force → saat penceresini atlar (manuel koşu). resend → günlük "gönderildi"
+  // damgasını da atlar: rapor Telegram'a ulaşmadıysa/kaybolduysa tekrar istenebilsin.
+  const due =
+    opts.force || opts.resend || (isWeekday() && min >= WATCHLIST_WINDOW.from && min < WATCHLIST_WINDOW.to);
+  if (!due) return false;
+  if (!opts.resend && cfg.last_watchlist_day === day) return false;
   if (!telegramConfigured(env)) return false;
 
   const watch = await getKKWatch(db, 60);
@@ -1087,7 +1179,13 @@ const EP_WINDOW_END = 13 * 60; // EP avı öğleden sonra 13:00 NY'de biter
 export async function runKullamagi(
   db: D1Database,
   env: TelegramEnv,
-  options: { force?: boolean; notify?: boolean; refreshBatch?: number } = {}
+  options: {
+    force?: boolean;
+    notify?: boolean;
+    refreshBatch?: number;
+    /** Günlük damgayı yok sayıp izleme listesini yeniden gönder */
+    resendWatchlist?: boolean;
+  } = {}
 ): Promise<KKRunResult> {
   const force = options.force ?? false;
   const notify = options.notify ?? true;
@@ -1117,9 +1215,22 @@ export async function runKullamagi(
   // Sıcak sembol hafızası (tarama + nabız alarmları) evrene eklenir: KK'nin
   // "günün en çok hareket edenleri" listesi bu isimlerden beslenir.
   const hot = await getHotSymbols(db).catch(() => [] as string[]);
-  const fullUniverse = [...new Set([...universe, ...hot])];
-  const lastBarTime = Math.max(0, ...[...map.values()].map((r) => r.lastTime));
-  const stale = lastBarTime > 0 && Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS;
+  // İZLENEN KURULUMLAR HER ZAMAN EVRENDE: bir sembol likidite süzgecinden
+  // düşünce (patlaması sönen küçük hisseler tipik) evrenden çıkıyor, dönen
+  // tarama ona bir daha uğramıyor ve kk_watch'taki pivot/tetik seviyeleri
+  // günlerce tazelenmeden tetiklenebilir kalıyordu (31 Ağu: en yüksek skorlu
+  // beş kurulumun seviyeleri Cuma akşamındandı). Kurulumu olan semboller
+  // evrene eklenir; artık kurulum taşımıyorlarsa tarama onları 'none' yapar.
+  const fullUniverse = [...new Set([...universe, ...hot, ...priority])];
+  // TAZELİK BİLİNMİYORSA BAYAT SAYILIR. Eski hal (`lastBarTime > 0 && ...`)
+  // zaman damgası bulunamayınca veriyi TAZE kabul ediyordu; yani sağlayıcı
+  // bozulduğunda ya da piyasa kapalıyken sistem kendini "seans içi, veri taze"
+  // sanıp bayat fiyatlarla sinyal üretebilirdi. 7 Eylül (Labor Day, piyasa
+  // kapalı) canlı koşusu tam bunu gösterdi: en taze veri 71 saatlikken faz
+  // "seans", bayat "false" görünüyordu.
+  const times = [...map.values()].map((r) => r.lastTime).filter((t) => t > 0);
+  const lastBarTime = times.length ? Math.max(...times) : 0;
+  const stale = lastBarTime === 0 || Date.now() / 1000 - lastBarTime > DATA_FRESH_SECONDS;
 
   // Tetikler yalnızca seans içinde ve taze veriyle üretilir. Açılışın ilk 5
   // dakikası atlanır: KK açılış aralığı oturmadan kırılım almaz.
@@ -1158,7 +1269,10 @@ export async function runKullamagi(
 
   let watchlistSent = false;
   try {
-    watchlistSent = await maybeSendWatchlist(db, env, cfg, min, day, force && !!options.notify);
+    watchlistSent = await maybeSendWatchlist(db, env, cfg, min, day, {
+      force: force && notify,
+      resend: !!options.resendWatchlist && notify,
+    });
   } catch (e) {
     console.error('KK izleme listesi hatası:', e);
   }
@@ -1183,7 +1297,15 @@ export async function runKullamagi(
     notified: signals.filter((s) => s.notified).length,
     watchlistSent,
     stale,
-    phase: tradable ? 'seans' : stale ? 'veri bayat' : inNySession(min) ? 'seans (ısınma)' : 'seans dışı',
+    phase: tradable
+      ? 'seans'
+      : stale
+        ? lastBarTime === 0
+          ? 'veri zaman damgasız (bayat sayıldı)'
+          : 'veri bayat'
+        : inNySession(min)
+          ? 'seans (ısınma)'
+          : 'seans dışı',
   };
 }
 

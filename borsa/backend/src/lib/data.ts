@@ -3,6 +3,7 @@
 // (anahtar gerektirmez; tarayıcı User-Agent başlığı zorunludur, yoksa 429 döner).
 
 import { massiveConfigured, massiveQuote, massiveAggregates } from './massive';
+import { fetchWithTimeout } from './http';
 import { bumpSubreq } from './subreq';
 
 const YAHOO = 'https://query1.finance.yahoo.com';
@@ -36,7 +37,7 @@ const QUOTE_TTL_MS = 5000;
 
 async function yahooFetch(path: string): Promise<any> {
   bumpSubreq();
-  const res = await fetch(`${YAHOO}${path}`, {
+  const res = await fetchWithTimeout(`${YAHOO}${path}`, {
     headers: { 'User-Agent': UA, Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Veri kaynağı hatası (${res.status})`);

@@ -23,6 +23,17 @@ borsa/backend/src/
 
 Akış: **veri → strateji → sinyal → doğrulama → yürütme**. Doğrulamayı geçemeyen sinyal `skipped` olarak kaydedilir, geçen sinyal paper-broker'da emre dönüşür. Her adım `signals` ve `orders` tablolarında izlenebilir.
 
+## Dış veri çağrılarında zaman aşımı
+
+Tüm dış veri çağrıları (Massive ve Yahoo) `lib/http.ts` içindeki
+`fetchWithTimeout` ile 10 saniyelik zaman aşımına sarılır. Sebep: Cloudflare
+`fetch`'i kendi başına süresiz bekler; sağlayıcı **hata vermek yerine asılı
+kalırsa** (11 Eyl 14:27-16:10, Massive) çağıran iş de asılı kalır. Yedek
+kaynağa düşme mantığı ancak çağrı bitince (hata/boş sonuç) devreye girdiği için
+asılı bir sağlayıcı tarayıcıyı sessizce kör eder — sinyal üretimi durur ama
+kalp atışı (iş **başlarken** damgalanır) sağlıklı görünmeye devam eder. Zaman
+aşımı, mevcut fail-open yollarının çalışmasını garanti eder.
+
 ## Anlık veri nereden geliyor?
 
 - **Yahoo Finance** (varsayılan): API anahtarı gerektirmez, ABD hisselerinde neredeyse anlık. Tarayıcı `User-Agent` başlığı zorunludur (kodda hazır).
@@ -123,16 +134,28 @@ ve bulduğunu **Telegram'a giriş/stop/hedef seviyeleriyle** yollar. Kod:
 ### 1. Breakout — sağlam konsolidasyondan çıkış
 
 Önce büyük bir hareket (1 ayda ≥ %20 / 3 ayda ≥ %30 / 6 ayda ≥ %60), sonra
-**sıkı bir baz**: 3-60 günlük konsolidasyon, ADR'ye göre sınırlı derinlik
-(en fazla 3 × ADR, tavan %35), **daralan menzil** (ikinci yarı / ilk yarı ≤ 1.15)
-ve **kuruyan hacim**. Fiyat referans ortalamanın üstünde tutunmalı (kısa bayrak
-10 EMA, orta 20 EMA, uzun baz 50 SMA) ve pivotun atış menzilinde olmalı.
+**sıkı bir baz**: 3-60 günlük konsolidasyon, derinlik en fazla 2,5 × ADR
+(tavan %25), fiyat pivotun 1,5 ADR'sinden (en çok %12) yakınında ve referans
+ortalamanın üstünde tutunuyor (kısa bayrak 10 EMA, orta 20 EMA, uzun baz 50 SMA).
+
+Sıkılık ve hacim kuruması baz uzunluğuna göre farklı ölçülür — kısa bayrakta
+"yarı-yarıya" kıyas 2 barı 1 bara bölmek demektir, gürültüdür:
+
+| | Kısa bayrak (≤ 5 gün) | Uzun baz (> 5 gün) |
+|---|---|---|
+| Sıkılık | son 3 günün menzili ≤ 2,2 × ADR | ikinci yarı / ilk yarı menzili ≤ 1,05 |
+| Hacim | baz hacmi / yükseliş bacağı hacmi ≤ 1,05 | ikinci yarı / ilk yarı hacmi ≤ 1,05 |
+
+Tabloda ve mesajlarda görünen "sıkılık"/"hacim" değerleri o baz için **uygulanan**
+ölçüdür (ikisinde de küçük = sıkı/sakin).
 
 Tetik: **konsolidasyon tepesinin (pivot) kırılışı** — ve kırılış hacimle gelmeli
 (saat eşleşmeli göreli hacim ≥ 1.5x). Pivotun bir ADR'sinden fazla uzaklaşmış
-fiyat kovalanmaz (üstünden gap'leyip kaçan hisse sinyal üretmez). Stop: 10/20 EMA,
-gün düşüğü ya da baz dibinden **girişe en yakın olanı** (en fazla 2.5 ADR). Hedef:
-3-5 günde 2-3 ADR → pozisyonun 1/3-1/2'sini sat, kalanı ortalamayla trail et.
+fiyat kovalanmaz (üstünden gap'leyip kaçan hisse sinyal üretmez). Stop KK'nin
+sırasıyla: **günün düşüğü**, olmazsa 10/20 EMA / önceki gün düşüğü / baz dibinden
+girişe en yakın olanı — 0,5 ADR'den yakın (gürültü) ve 2,5 ADR'den uzak (kötü
+risk/ödül) stop alınmaz. Hedef: 3-5 günde 2-3 ADR → pozisyonun 1/3-1/2'sini sat,
+kalanı ortalamayla trail et.
 
 ### 2. Episodic pivot — beklenmedik katalizör + olağanüstü hacim
 
@@ -147,8 +170,11 @@ Fiyat giriş bölgesinin bir ADR üstündeyse mesaj "kovalama" uyarısı taşır
 3 günde ≥ %35 / 5 günde ≥ %60 / 10 günde ≥ %100 yükselmiş ve **20 EMA'dan ≥ %30
 uzaklaşmış** hisseler izlemeye alınır. Sinyal ancak **dönüş teyit olunca** üretilir:
 önceki günün düşüğü kırılır ve gün kırmızıdır (yükselirken asla short'lanmaz).
-Stop dünün/bugünün tepesi, hedef 10/20 EMA bölgesi. Tetiğin bir ADR altına
-düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
+Stop bugünün/dünün tepesinden **girişe yakın olanı**, hedef 10/20 EMA bölgesi.
+Tetiğin bir ADR altına düşülmüşse "geç kalındı" sayılır ve sinyal üretilmez.
+Ayrıca short'ta **risk tavanı** vardır (2,5 × ADR, en çok %30): stop ancak tepenin
+üstünde olabildiği için, tavanı aşan aday uydurma stop'la sinyale çevrilmez —
+atlanır. Bu kapı `force` ile de atlanmaz.
 
 ### Nasıl çalışır (bütçe mimarisi)
 
@@ -158,10 +184,17 @@ başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
 1. **Derin tarama (yavaş, günlük)** — her koşuda `refresh_batch` kadar sembol
    (varsayılan 10) günlük mumlarla analiz edilir ve `kk_watch` tablosuna
    pivot/tetik seviyeleriyle yazılır. Sıra "en uzun süredir bakılmayan" sembole
-   göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası.
+   göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası
+   + **hâlihazırda kurulumu olan semboller** (bunlar likidite süzgecinden düşse
+   bile tazelenmeli, yoksa seviyeleri donar). Tetik için ayrıca tazelik şartı
+   vardır: 3 günden eski seviyelerle sinyal üretilmez (hafta sonunu tolere eder,
+   atlanmış seansları etmez).
 2. **Tetik (hızlı, canlı)** — her koşuda tüm piyasa **tek snapshot** çağrısıyla
    alınır ve saklanan seviyelerle kıyaslanır. Yalnızca tetiklenen avuç dolusu aday
-   için gün içi hacim / açılış aralığı / haber çekilir.
+   için gün içi hacim / açılış aralığı / haber çekilir. Tetikler yalnızca veri
+   TAZE ise üretilir; tazelik **bilinmiyorsa** (zaman damgası yok, sağlayıcı
+   bozuk) bayat sayılır ve sinyal üretilmez — tatil günlerinde/kesintide bir
+   önceki seansın fiyatlarıyla sinyal çıkmasın diye.
 
 Ek olarak her sabah **08:00-09:25 NY** arasında günün **izleme listesi** gönderilir:
 kırılım adayları pivot ve stop bölgeleriyle, parabolik izlemedekiler tetik
@@ -173,7 +206,9 @@ Mesajlarda pozisyon boyutu önerisi de var: %0,5 hesap riski ÷ stop mesafesi.
 - `GET /api/kk` — yapılandırma + izlenen kurulumlar + son sinyaller
 - `PATCH /api/kk` — `{enabled, min_price, min_dollar_vol, min_gap_pct, refresh_batch, universe_max}`
 - `POST /api/kk/run` — manuel koşu (`?force=1` seans/veri kapılarını atlar,
-  `?notify=0` Telegram'sız, `?batch=N` derin tarama adedi)
+  `?notify=0` Telegram'sız, `?batch=N` derin tarama adedi,
+  `?watchlist=1` izleme listesi raporunu günlük damgaya bakmadan yeniden gönderir —
+  rapor Telegram'a ulaşmadıysa)
 - `GET /api/kk/analyze?symbol=NVDA` — tek sembol tanısı: kurulum neden var/yok
 
 ## FTREND stratejisi (altın / trend takibi)

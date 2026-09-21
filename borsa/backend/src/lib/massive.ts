@@ -4,6 +4,7 @@
 // Anahtar KODA YAZILMAZ — Cloudflare secret (MASSIVE_API_KEY) olarak set edilir ve
 // her istek/cron girişinde setMassiveKey() ile bu modüle aktarılır.
 
+import { fetchWithTimeout } from './http';
 import type { Quote, Candle } from './data';
 import type { SparkSeries } from './scanner';
 import { bumpSubreq } from './subreq';
@@ -18,13 +19,24 @@ export function massiveConfigured(): boolean {
   return !!API_KEY;
 }
 
-async function mFetch(path: string): Promise<any> {
+// Tüm piyasa snapshot'ı (13 bin ticker) diğer çağrılardan kat kat ağırdır:
+// 11 Eyl'de tek sembol 0,7 sn ve aggregates 1,6 sn dönerken snapshot 40 sn'de
+// bile tamamlanmadı. Bu yüzden snapshot'a ayrı (uzun) bütçe verilir — ortak
+// 10 sn'lik zaman aşımı onu her koşuda iptal edip evreni Yahoo yedeğine
+// (birkaç düzine sembol) düşürürdü.
+const SNAPSHOT_TIMEOUT_MS = 30_000;
+
+async function mFetch(path: string, timeoutMs?: number): Promise<any> {
   if (!API_KEY) throw new Error('MASSIVE_API_KEY tanımlı değil');
   bumpSubreq();
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`${BASE}${path}${sep}apiKey=${encodeURIComponent(API_KEY)}`, {
-    headers: { Accept: 'application/json' },
-  });
+  // Zaman aşımlı: sağlayıcı asılı kalırsa çağrı iptal edilir ve çağıranın
+  // Yahoo yedeğine düşmesi mümkün olur (bkz. http.ts fetchWithTimeout).
+  const res = await fetchWithTimeout(
+    `${BASE}${path}${sep}apiKey=${encodeURIComponent(API_KEY)}`,
+    { headers: { Accept: 'application/json' } },
+    timeoutMs
+  );
   if (!res.ok) throw new Error(`Massive ${res.status}`);
   return res.json();
 }
@@ -41,7 +53,10 @@ interface SnapTicker {
 /** Sağlayıcı sağlık kontrolü: tek snapshot çağrısı kaç ticker döndürüyor? */
 export async function massivePing(): Promise<{ ok: boolean; count: number; error?: string }> {
   try {
-    const data = await mFetch('/v2/snapshot/locale/us/markets/stocks/tickers');
+    const data = await mFetch(
+      '/v2/snapshot/locale/us/markets/stocks/tickers',
+      SNAPSHOT_TIMEOUT_MS
+    );
     return { ok: true, count: (data?.tickers ?? []).length };
   } catch (e: any) {
     return { ok: false, count: 0, error: String(e?.message ?? e) };
@@ -50,7 +65,10 @@ export async function massivePing(): Promise<{ ok: boolean; count: number; error
 
 /** Tüm ABD piyasası snapshot'ı — tek çağrı. Anlık fiyat + günlük değişim + gün OHLC. */
 export async function massiveSnapshotAll(): Promise<SnapTicker[]> {
-  const data = await mFetch('/v2/snapshot/locale/us/markets/stocks/tickers');
+  const data = await mFetch(
+    '/v2/snapshot/locale/us/markets/stocks/tickers',
+    SNAPSHOT_TIMEOUT_MS
+  );
   return (data?.tickers ?? []) as SnapTicker[];
 }
 
@@ -76,6 +94,10 @@ export interface MassiveBroadRow {
   dayChangePercent: number;
   gapPercent: number;
   rangePercent: number;
+  // Günün düşüğü/tepesi (pre-market'te 0 gelebilir → null). Stop referansı:
+  // KK kırılım stop'u "günün düşüğü", short stop'u "günün tepesi"dir.
+  dayLow: number | null;
+  dayHigh: number | null;
   liquidity: number; // gün hacmi (pre-market'te önceki gün hacmi)
   lastTime: number; // unix saniye
 }
@@ -111,6 +133,8 @@ export async function massiveBroadRows(): Promise<MassiveBroadRow[]> {
       dayChangePercent: t.todaysChangePerc,
       gapPercent,
       rangePercent,
+      dayLow: (t.day?.l ?? 0) > 0 ? t.day!.l! : null,
+      dayHigh: (t.day?.h ?? 0) > 0 ? t.day!.h! : null,
       liquidity: liqVol,
       lastTime: t.min?.t ? Math.floor(t.min.t / 1000) : Math.floor(Date.now() / 1000),
     });

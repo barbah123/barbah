@@ -186,8 +186,12 @@ başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
    pivot/tetik seviyeleriyle yazılır. Sıra "en uzun süredir bakılmayan" sembole
    göre döner; evren likidite sırasına göre ilk 400 hisse + sıcak sembol hafızası
    + **hâlihazırda kurulumu olan semboller** (bunlar likidite süzgecinden düşse
-   bile tazelenmeli, yoksa seviyeleri donar). Tetik için ayrıca tazelik şartı
-   vardır: 3 günden eski seviyelerle sinyal üretilmez (hafta sonunu tolere eder,
+   bile tazelenmeli, yoksa seviyeleri donar). Sıradan sembol günde bir kez (20 sa),
+   **kurulum taşıyan satır 6 saatte bir** taranır ve bütçenin yarısı bu satırlara
+   ayrılır: evren her gün yüzlerce yeni hareketliyle tazelendiği için "hiç
+   bakılmamış" semboller kuyruğun başına geçiyor, kurulum satırları ise sonda
+   kalıp günlerce tazelenmiyordu. Tetik için ayrıca tazelik şartı vardır:
+   3 günden eski seviyelerle sinyal üretilmez (hafta sonunu tolere eder,
    atlanmış seansları etmez).
 2. **Tetik (hızlı, canlı)** — her koşuda tüm piyasa **tek snapshot** çağrısıyla
    alınır ve saklanan seviyelerle kıyaslanır. Yalnızca tetiklenen avuç dolusu aday
@@ -195,6 +199,12 @@ başına bir yıllık günlük mum ister. Bu yüzden iş ikiye bölünür:
    TAZE ise üretilir; tazelik **bilinmiyorsa** (zaman damgası yok, sağlayıcı
    bozuk) bayat sayılır ve sinyal üretilmez — tatil günlerinde/kesintide bir
    önceki seansın fiyatlarıyla sinyal çıkmasın diye.
+
+Rapor ve tetik aynı tazelik ilkesine tabidir: **izleme listesine yalnızca son
+12 saat içinde taranmış satırlar girer.** Bayat seviyeyle rapor göndermektense
+hiç göndermemek doğrudur — eksik rapor izlemede göze çarpar, yanlış seviye ise
+işleme dönüşür (22 Eylül: 29 saatlik satırlar yüzünden rapor, dönüşü bir gün önce
+sinyallenmiş iki ismi hâlâ "dönüş bekleniyor" diye listelemişti).
 
 Ek olarak her sabah **08:00-09:25 NY** arasında günün **izleme listesi** gönderilir:
 kırılım adayları pivot ve stop bölgeleriyle, parabolik izlemedekiler tetik

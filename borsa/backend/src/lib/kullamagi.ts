@@ -64,6 +64,10 @@ const MAX_EP_INTEL = 2; // istihbarat (sembol başına ~4 istek)
 const MAX_PARA_SIGNALS = 3;
 const YAHOO_LIVE_CAP = 30; // Massive yoksa canlı fiyat çekilen sembol tavanı
 const REFRESH_TTL_HOURS = 20; // aynı sembolü günde bir kez derin tara
+// KURULUM TAŞIYAN SATIRLAR İÇİN AYRI (KISA) TTL. Sıradan semboller günde bir
+// kez taranır; ama bir sembolün kk_watch'ta pivotu/tetiği duruyorsa o seviye
+// sinyal üretiyor demektir ve bir seans eskimesi bile yanlış sinyal demektir.
+const SETUP_REFRESH_TTL_HOURS = 6;
 const WATCH_STALE_DAYS = 5; // bu kadar gün tazelenmemiş kurulum listelenmez
 // Tetik için ayrı, daha sıkı tazelik: seviyeler günlük mumlardan hesaplanır,
 // aradan seans geçtiyse baz çoktan bozulmuş olabilir. 3 gün hafta sonunu
@@ -1051,22 +1055,40 @@ async function refreshWatch(
 ): Promise<{ refreshed: number; setups: number }> {
   if (batch <= 0 || !universe.length) return { refreshed: 0, setups: 0 };
   const { results } = await db
-    .prepare('SELECT symbol, checked_at FROM kk_watch')
-    .all<{ symbol: string; checked_at: string }>();
-  const seen = new Map(results.map((r) => [r.symbol, r.checked_at]));
-  const cutoff = Date.now() - REFRESH_TTL_HOURS * 3600 * 1000;
+    .prepare("SELECT symbol, checked_at, setup FROM kk_watch")
+    .all<{ symbol: string; checked_at: string; setup: string }>();
+  const seen = new Map(results.map((r) => [r.symbol, r]));
+  const now = Date.now();
+  const cutoff = now - REFRESH_TTL_HOURS * 3600 * 1000;
+  const setupCutoff = now - SETUP_REFRESH_TTL_HOURS * 3600 * 1000;
 
   // En eski kontrol edilenler önce; hiç bakılmamışlar en önde (imleç gerekmez,
   // evren her koşuda değişse de kapsama kendini dengeler).
-  const targets = universe
-    .map((symbol) => {
-      const at = seen.get(symbol);
-      const ts = at ? Date.parse(at.replace(' ', 'T') + 'Z') : 0;
-      return { symbol, ts };
-    })
-    .filter((t) => t.ts < cutoff)
+  const scored = universe.map((symbol) => {
+    const row = seen.get(symbol);
+    const ts = row?.checked_at ? Date.parse(row.checked_at.replace(' ', 'T') + 'Z') : 0;
+    const hasSetup = !!row && row.setup !== 'none';
+    return { symbol, ts, hasSetup };
+  });
+
+  // KURULUM SATIRLARI SIRAYA KAYNAMAZ. Hiç görülmemiş semboller (ts = 0) her
+  // koşuda kuyruğun başına geçiyor; evren her gün yüzlerce yeni hareketliyle
+  // tazelendiği için kk_watch'taki kurulumlar sıranın sonunda kalıp günlerce
+  // tazelenmiyordu (22 Eylül: havuzdaki altı parabolik satır 29 saat boyunca
+  // hiç taranmadı; açılış öncesi rapor, dönüşünü bir gün önce zaten
+  // sinyallediğimiz FTFT ve VEEA'yı "dönüş bekleniyor" diye listeledi).
+  // Bu yüzden bütçenin yarısı, seviyesi eskimiş kurulum satırlarına ayrılır.
+  const stalePool = scored
+    .filter((t) => t.hasSetup && t.ts < setupCutoff)
+    .sort((a, b) => a.ts - b.ts);
+  const setupQuota = Math.min(stalePool.length, Math.max(1, Math.ceil(batch / 2)));
+  const setupTargets = stalePool.slice(0, setupQuota);
+  const picked = new Set(setupTargets.map((t) => t.symbol));
+  const rest = scored
+    .filter((t) => !picked.has(t.symbol) && t.ts < cutoff)
     .sort((a, b) => a.ts - b.ts)
-    .slice(0, batch);
+    .slice(0, batch - setupTargets.length);
+  const targets = [...setupTargets, ...rest];
 
   let setups = 0;
   const CONCURRENCY = 5;
@@ -1097,6 +1119,9 @@ async function refreshWatch(
 // ---- Günlük izleme listesi raporu (açılış öncesi) ----
 
 const WATCHLIST_WINDOW = { from: 8 * 60, to: 9 * 60 + 25 }; // 08:00-09:25 NY
+// Rapora girecek satırın azami yaşı: derin tarama aynı koşuda rapordan önce
+// çalıştığı için normal bir günde tüm satırlar birkaç dakikalıktır.
+const WATCHLIST_MAX_AGE_HOURS = 12;
 
 async function maybeSendWatchlist(
   db: D1Database,
@@ -1114,7 +1139,16 @@ async function maybeSendWatchlist(
   if (!opts.resend && cfg.last_watchlist_day === day) return false;
   if (!telegramConfigured(env)) return false;
 
-  const watch = await getKKWatch(db, 60);
+  // RAPOR YALNIZCA TAZE SEVİYELERLE ÇIKAR. 22 Eylül'de havuz satırları 29
+  // saattir tazelenmemişti ve rapor, dönüşü bir gün önce sinyallenmiş iki ismi
+  // (FTFT, VEEA) hâlâ "dönüş bekleniyor" diye listeledi. Bayat seviyeyle rapor
+  // göndermektense hiç göndermemek doğrusu: eksik rapor izlemede göze çarpar,
+  // yanlış seviye ise işleme dönüşür.
+  const fresh = Date.now() - WATCHLIST_MAX_AGE_HOURS * 3600 * 1000;
+  const watch = (await getKKWatch(db, 60)).filter((w) => {
+    const at = w.checked_at ? Date.parse(w.checked_at.replace(' ', 'T') + 'Z') : 0;
+    return at >= fresh;
+  });
   const breakouts = watch.filter((w) => w.setup === 'breakout').slice(0, 8);
   const paras = watch.filter((w) => w.setup === 'parabolic_watch').slice(0, 5);
   if (!breakouts.length && !paras.length) return false;

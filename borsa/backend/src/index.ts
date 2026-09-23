@@ -16,6 +16,7 @@ import { runStrategies } from './lib/signals';
 import { runScan } from './lib/scanner';
 import { runAllTraders, runTraderCycle, enterFromPulseAlerts } from './lib/trader';
 import { runGapScan } from './lib/gapscan';
+import { runInsiderScan, previewInsider } from './lib/insider';
 import { runPulse, type PulseAlert } from './lib/pulse';
 import { checkLevelAlerts, type LevelAlert } from './lib/levels';
 import { reportTrackedPositions, getActiveTracked, type TrackedPosition } from './lib/tracker';
@@ -149,7 +150,7 @@ export default {
         const { results } = await env.DB
           .prepare('SELECT id, cron, at FROM cron_heartbeat')
           .all<{ id: number; cron: string; at: string }>();
-        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk', 8: 'telegram_error', 9: 'gapscan' };
+        const names: Record<number, string> = { 1: 'cycle', 2: 'trader', 3: 'scan', 4: 'trader_report', 5: 'trader_attempt', 6: 'gold', 7: 'kk', 8: 'telegram_error', 9: 'gapscan', 10: 'insider' };
         const jobs: Record<string, unknown> = {};
         let newestAge: number | null = null;
         for (const r of results) {
@@ -303,8 +304,12 @@ export default {
         // — asgari aralık (3 saat) pencere içinde ikinci koşuyu zaten engeller
         const totalMin = hour * 60 + d.getUTCMinutes();
         const inGapWindow = day >= 1 && day <= 5 && totalMin >= 775 && totalMin < 805;
+        // İçeriden küme alımları: Form 4'ler hafta içi gün boyu (EDGAR 22:00 ET'ye
+        // kadar) dosyalanır → hafta içi + Cumartesi 04 UTC'ye kadar; 30 dk aralık
+        const inInsiderWindow = (day >= 1 && day <= 5) || (day === 6 && hour < 4);
         const kinds: JobKind[] = ['gold'];
         if (inGapWindow) kinds.push('gapscan');
+        if (inInsiderWindow) kinds.push('insider');
         if (inKkWindow) kinds.push('kk');
         if (inUsSession) kinds.push(...(inScanWindow ? (['scan', 'trader', 'cycle'] as JobKind[]) : (['trader', 'cycle'] as JobKind[])));
         const ran: string[] = [];
@@ -454,6 +459,15 @@ export default {
           .bind(...binds)
           .run();
         return json({ state: await getKKState(env.DB) });
+      }
+      // İçeriden küme alımları: önizleme (DB/Telegram yok) ve manuel koşu.
+      // Manuel koşu da insider_seen'e yazar — bildirilen kayıt tekrar gönderilmez.
+      if (path === '/api/insider' && request.method === 'GET') {
+        const n = Number(url.searchParams.get('n'));
+        return json({ results: await previewInsider(Number.isInteger(n) && n > 0 ? n : 10) });
+      }
+      if (path === '/api/insider/run' && request.method === 'POST') {
+        return json(await runInsiderScan(env.DB, env, { notify: url.searchParams.get('notify') !== '0' }));
       }
       // Manuel koşu: ?force=1 seans/veri kapılarını atlar, ?notify=0 Telegram'sız
       if (path === '/api/kk/run' && request.method === 'POST') {
@@ -694,11 +708,11 @@ export default {
 // kullanır. Tür bazlı kalp atışı + asgari aralık koruması çift çalışmayı önler
 // (10 Tem: CF cron'ları kayıtlı olduğu halde sessizce durdu).
 
-type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk' | 'gapscan';
+type JobKind = 'cycle' | 'trader' | 'scan' | 'gold' | 'kk' | 'gapscan' | 'insider';
 // DİKKAT: id 4, 5 ve 8 tanı kayıtlarına ayrılmıştır (4=trader_report,
 // 5=trader_attempt, 8=telegram_error — trader.ts yazar). Altın işi id 4'ü kullanınca rapor izinin üstüne yazıyordu
 // (3 Ağu: trader_report kaynağı "alarm" görünüyordu) — altın 6'ya taşındı.
-const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7, gapscan: 9 };
+const JOB_IDS: Record<JobKind, number> = { cycle: 1, trader: 2, scan: 3, gold: 6, kk: 7, gapscan: 9, insider: 10 };
 const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
   cycle: 240,
   trader: 540,
@@ -709,6 +723,8 @@ const JOB_MIN_INTERVAL_S: Record<JobKind, number> = {
   kk: 240,
   // Açılış öncesi gap taraması: sabah penceresinde (12:55-13:25 UTC) tek koşu
   gapscan: 10800,
+  // İçeriden küme alımları (OpenInsider): yeni dosyalamalar için 30 dk'da bir
+  insider: 1800,
 };
 
 // İş yuvasını atomik olarak sahiplen. Tek bir koşullu UPDATE ile hem "vakti
@@ -761,6 +777,14 @@ export async function runScheduledJob(
     if (kind === 'gapscan') {
       const info = await runGapScan(env.DB, env);
       console.log(`Gap taraması: ${info}`);
+      return true;
+    }
+    if (kind === 'insider') {
+      const r = await runInsiderScan(env.DB, env);
+      console.log(
+        `İçeriden alım: ${r.clusters} küme, ${r.fresh} yeni, ${r.scored} puanlandı, ` +
+          `${r.alerts} bildirim (telegram ${r.notified}), ${r.deferred} sonraya`
+      );
       return true;
     }
     if (kind === 'kk') {

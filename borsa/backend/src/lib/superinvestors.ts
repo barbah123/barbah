@@ -86,11 +86,18 @@ function activityMark(activity: string): string {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Portföy payı; çok küçükse "%<0,1". Telegram HTML modunda çıplak '<' etiket
+// sanılır ve tüm mesaj reddedilir → &lt; olarak kaçırılır.
+function pctText(pct: number | null): string {
+  if (pct == null) return '';
+  return pct < 0.1 ? ' %&lt;0,1' : ` %${pct.toFixed(1).replace('.', ',')}`;
+}
+
 /** Bildirim satırı; hisseyi tutan yoksa boş dize (gürültü üretmesin). */
 export function formatSuperContext(ctx: SuperContext | null): string {
   if (!ctx || ctx.count === 0) return '';
   const top = ctx.holders
     .slice(0, TOP_N)
-    .map((h) => `${esc(shortName(h.manager))}${h.pct == null ? '' : h.pct < 0.1 ? ' %<0,1' : ` %${h.pct.toFixed(1).replace('.', ',')}`}${activityMark(h.activity)}`);
+    .map((h) => `${esc(shortName(h.manager))}${pctText(h.pct)}${activityMark(h.activity)}`);
   return `🏦 Süper yatırımcılar: ${ctx.count}${top.length ? ' · ' + top.join(' · ') : ''}\n`;
 }

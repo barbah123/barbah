@@ -489,13 +489,17 @@ export async function runInsiderScan(
 }
 
 /** Bildirilecek hisseler için Dataroma bağlamı; hata ya da bütçe aşımı bildirimi engellemez. */
-async function superContexts(tickers: string[]): Promise<Map<string, SuperContext | null>> {
+async function superContexts(
+  tickers: string[],
+  errors?: Map<string, string>
+): Promise<Map<string, SuperContext | null>> {
   const out = new Map<string, SuperContext | null>();
   for (const t of [...new Set(tickers)].slice(0, SUPER_CONTEXT_MAX)) {
     try {
       out.set(t, await fetchSuperContext(t));
     } catch (e) {
       console.error(`Dataroma bağlamı alınamadı (${t}):`, e);
+      errors?.set(t, String((e as Error)?.message ?? e).slice(0, 240));
       out.set(t, null);
     }
   }
@@ -520,14 +524,18 @@ async function sendChunked(env: TelegramEnv, blocks: string[]): Promise<boolean>
 /** Önizleme (bildirim/DB yok): en güçlü n küme kaydını geçmişle puanlar. */
 export async function previewInsider(
   n = 10
-): Promise<Array<InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null }>> {
+): Promise<
+  Array<InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null; superinvestorsError?: string }>
+> {
   const records = await fetchClusterBuys();
   const top = records
     .map((r) => ({ r, pre: assess(r).score }))
     .sort((a, b) => b.pre - a.pre)
     .slice(0, Math.min(n, HISTORY_BATCH))
     .map((x) => x.r);
-  const out: Array<InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null }> = [];
+  const out: Array<
+    InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null; superinvestorsError?: string }
+  > = [];
   const histories = new Map<string, InsiderRow[]>();
   for (const r of top) {
     if (!histories.has(r.ticker)) histories.set(r.ticker, await fetchPurchaseHistory(r.ticker).catch(() => []));
@@ -535,7 +543,12 @@ export async function previewInsider(
   }
   out.sort((a, b) => b.assessment.score - a.assessment.score);
   // Bağlam yalnızca bildirim eşiğini geçenlere (canlı gönderimdeki davranışın aynısı)
-  const sup = await superContexts(out.filter((r) => r.assessment.score >= MIN_SCORE).map((r) => r.ticker));
-  for (const r of out) if (sup.has(r.ticker)) r.superinvestors = sup.get(r.ticker);
+  // Hata metni de döner: Worker'da Dataroma engeli ancak buradan görülebilir (loglara erişim yok)
+  const errors = new Map<string, string>();
+  const sup = await superContexts(out.filter((r) => r.assessment.score >= MIN_SCORE).map((r) => r.ticker), errors);
+  for (const r of out) {
+    if (sup.has(r.ticker)) r.superinvestors = sup.get(r.ticker);
+    if (errors.has(r.ticker)) r.superinvestorsError = errors.get(r.ticker);
+  }
   return out;
 }

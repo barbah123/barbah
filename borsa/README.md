@@ -16,6 +16,7 @@ borsa/backend/src/
 │   ├── intel.ts       → İSTİHBARAT        (haber + bilanço takvimi + Reddit/Stocktwits)
 │   ├── trader.ts      → OTONOM TRADER     (analiz→risk→giriş/çıkış→inceleme→rapor)
 │   ├── kullamagi.ts   → KK TARAYICI       (breakout / episodic pivot / parabolik short)
+│   ├── insider.ts     → İÇERİDEN ALIM     (OpenInsider küme alımları → puan → Telegram)
 │   └── telegram.ts    → BİLDİRİM          (sinyal + tarama + bot raporları Telegram'a)
 ├── routes/            → REST API uçları
 └── index.ts           → yönlendirme + cron tetikleyicileri
@@ -243,3 +244,22 @@ geçen kurulum. Aynı 60 günlük pencerede 15m tüm parametrelerde zarar ederke
 `PATCH {"interval":"15m"}` yeter, ama veri 1h'ı destekliyor.
 
 > ⚠️ Bu uygulama eğitim/simülasyon amaçlıdır; ürettiği sinyaller yatırım tavsiyesi değildir.
+
+## İçeriden küme alımları (OpenInsider)
+
+`lib/insider.ts`, [OpenInsider](http://openinsider.com/latest-cluster-buys)
+küme alımlarını (aynı hissede birden fazla içeriden kişinin açık piyasa alımı)
+hafta içi 30 dakikada bir tarar. Her yeni kayıt 0-100 arası puanlanır ve puanı
+40 ve üzeri olanlar mevcut `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` ile tek
+bir toplu mesajda gönderilir. İşlem açmaz; yalnızca bildirim yapar.
+
+- **Puanlama:** alıcı sayısı, toplam tutar, pozisyon artışı ve tazelik puanı
+  artırır. Kuruş hisse ve **rutin alıcılar** puanı düşürür. Rutin alıcı, önceki
+  3 yılın aynı ayında ya da son 6 ayın en az 4'ünde alım yapmış kişidir.
+  Kurallar dosyanın başında.
+- **Tekrar yok:** Görülen kayıtlar `insider_seen` tablosunda tutulur
+  (migration `0013`). İlk koşuda 3 günden eski kayıtlar sessizce işaretlenir.
+  Telegram gönderimi düşerse kayıt yazılmaz ve sonraki koşuda yeniden denenir.
+- **Uçlar:** `GET /api/insider?n=10` önizleme verir (DB/Telegram yok).
+  `POST /api/insider/run` hemen koşturur (`?notify=0` ile Telegram'sız).
+  Kalp atışı `/api/health` → `jobs.insider`.

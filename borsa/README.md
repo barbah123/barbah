@@ -253,10 +253,13 @@ hafta içi 30 dakikada bir tarar. Her yeni kayıt 0-100 arası puanlanır ve pua
 40 ve üzeri olanlar mevcut `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` ile tek
 bir toplu mesajda gönderilir. İşlem açmaz; yalnızca bildirim yapar.
 
-- **Puanlama:** alıcı sayısı, toplam tutar, pozisyon artışı ve tazelik puanı
-  artırır. Kuruş hisse ve **rutin alıcılar** puanı düşürür. Rutin alıcı, önceki
-  3 yılın aynı ayında ya da son 6 ayın en az 4'ünde alım yapmış kişidir.
-  Kurallar dosyanın başında.
+- **Puanlama:** Ana sinyal, kümede **CEO ve CFO'nun birlikte** alım yapması
+  (+50). 2025 backtestinde (1.343 küme) diğer kümeleri 6 ayda IWM'e göre +7,6
+  puan geçen tek faktör bu oldu. Alıcı sayısı, tutar, pozisyon artışı, tazelik
+  ve rutin alıcı cezası yarım ağırlıkla ikincil kalır. Bu yüzden 40 eşiğini
+  pratikte yalnızca CEO+CFO kümeleri geçer (2025'te ~266 küme, haftada ~5).
+  $5 altı hisselerde mesaja "piyango dağılımı" uyarısı eklenir. Kurallar ve
+  gerekçeleri dosyanın başında.
 - **Tekrar yok:** Görülen kayıtlar `insider_seen` tablosunda tutulur
   (migration `0013`). İlk koşuda 3 günden eski kayıtlar sessizce işaretlenir.
   Telegram gönderimi düşerse kayıt yazılmaz ve sonraki koşuda yeniden denenir.

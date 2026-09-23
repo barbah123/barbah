@@ -288,6 +288,10 @@ bir toplu mesajda gönderilir. İşlem açmaz; yalnızca bildirim yapar.
   pratikte yalnızca CEO+CFO kümeleri geçer (2025'te ~266 küme, haftada ~5).
   $5 altı hisselerde mesaja "piyango dağılımı" uyarısı eklenir. Kurallar ve
   gerekçeleri dosyanın başında.
+- **Süper yatırımcı bağlamı:** Bildirilen her hisse için Dataroma'dan
+  hisseyi tutan süper yatırımcı sayısı ve en büyük 3 pozisyon eklenir
+  (`lib/superinvestors.ts`). Yalnızca bağlamdır, puanı etkilemez: 83
+  yatırımcının 2025 13F işlemleri backtestinde alımlar endeksi geçmedi.
 - **Tekrar yok:** Görülen kayıtlar `insider_seen` tablosunda tutulur
   (migration `0013`). İlk koşuda 3 günden eski kayıtlar sessizce işaretlenir.
   Telegram gönderimi düşerse kayıt yazılmaz ve sonraki koşuda yeniden denenir.

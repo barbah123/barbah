@@ -42,13 +42,15 @@
 //   • HTTPS bağlantıyı kesiyor; site yalnızca HTTP'den servis ediliyor.
 //
 // BÜTÇE (Worker alt-çağrısı başına ~50 alt-istek):
-//   1 küme sayfası + en fazla HISTORY_BATCH hisse geçmişi + 1-2 Telegram.
+//   1 küme sayfası + en fazla HISTORY_BATCH hisse geçmişi + en fazla
+//   SUPER_CONTEXT_MAX Dataroma bağlamı (yalnızca bildirilecekler) + 1-2 Telegram.
 //   Kalan yeni kayıtlar bir sonraki koşuya kalır (insider_seen'e yazılmadıkları
 //   için tekrar ele alınırlar).
 
 import { fetchWithTimeout } from './http';
 import { bumpSubreq } from './subreq';
 import { sendTelegram, telegramConfigured, type TelegramEnv } from './telegram';
+import { fetchSuperContext, formatSuperContext, type SuperContext } from './superinvestors';
 
 const BASE_URL = 'http://openinsider.com';
 export const CLUSTER_URL = `${BASE_URL}/latest-cluster-buys`;
@@ -69,6 +71,7 @@ const FREQUENT_MIN_MONTHS = 4;
 const CLUSTER_WINDOW_DAYS = 30;
 const CEO_CFO_BONUS = 50;
 const LOW_PRICE = 5; // bunun altı: mesajda "piyango dağılımı" uyarısı
+const SUPER_CONTEXT_MAX = 6; // koşu başına Dataroma bağlam isteği (yalnızca bildirilecekler)
 
 // Form 4 unvanları serbest metin: "Pres, CEO", "EVP, CFO", "COB, CEO, 10%" …
 const CEO_RE = /\bCEO\b|chief executive/i;
@@ -367,7 +370,7 @@ function money(v: number | null): string {
   return x >= 1e6 ? `$${(x / 1e6).toFixed(1)}M` : `$${Math.round(x / 1e3)}K`;
 }
 
-export function formatAlert(rec: InsiderRow, a: Assessment): string {
+export function formatAlert(rec: InsiderRow, a: Assessment, sup?: SuperContext | null): string {
   const routine = a.members.length ? ` · rutin ${a.routine.length}/${a.members.length}` : '';
   const badge = a.ceo && a.cfo ? ' 👔 CEO+CFO' : '';
   const warn = a.lowPrice
@@ -378,6 +381,7 @@ export function formatAlert(rec: InsiderRow, a: Assessment): string {
     `${rec.insiders ?? '?'} kişi · ${money(rec.value)} · $${(rec.price ?? 0).toFixed(2)} · ` +
     `işlem ${rec.tradeDate ?? '?'}${routine}\n` +
     warn +
+    formatSuperContext(sup ?? null) +
     `<i>${esc(a.reasons.join(', '))}</i>\n` +
     `http://openinsider.com/${encodeURIComponent(rec.ticker)}`
   );
@@ -443,10 +447,11 @@ export async function runInsiderScan(
 
   let sent = true;
   if (alerts.length && notify && telegramConfigured(env)) {
+    const sup = await superContexts(alerts.map((s) => s.rec.ticker));
     sent = await sendChunked(env, [
       `🕵️ <b>İçeriden Küme Alımları</b> (${alerts.length} yeni, puan ≥${MIN_SCORE})`,
-      ...alerts.map((s) => formatAlert(s.rec, s.a)),
-      'Bilgi amaçlıdır, işlem açılmaz.',
+      ...alerts.map((s) => formatAlert(s.rec, s.a, sup.get(s.rec.ticker))),
+      'Bilgi amaçlıdır, işlem açılmaz. 🏦 satırı bağlamdır: 13F 45 gün gecikmeli, backtestte sinyal değil.',
     ]);
     result.notified = sent;
   }
@@ -483,6 +488,20 @@ export async function runInsiderScan(
   return result;
 }
 
+/** Bildirilecek hisseler için Dataroma bağlamı; hata ya da bütçe aşımı bildirimi engellemez. */
+async function superContexts(tickers: string[]): Promise<Map<string, SuperContext | null>> {
+  const out = new Map<string, SuperContext | null>();
+  for (const t of [...new Set(tickers)].slice(0, SUPER_CONTEXT_MAX)) {
+    try {
+      out.set(t, await fetchSuperContext(t));
+    } catch (e) {
+      console.error(`Dataroma bağlamı alınamadı (${t}):`, e);
+      out.set(t, null);
+    }
+  }
+  return out;
+}
+
 // Telegram 4096 karakter sınırı: blokları bölmeden birleştirerek gönder
 async function sendChunked(env: TelegramEnv, blocks: string[]): Promise<boolean> {
   let chunk = '';
@@ -499,18 +518,24 @@ async function sendChunked(env: TelegramEnv, blocks: string[]): Promise<boolean>
 }
 
 /** Önizleme (bildirim/DB yok): en güçlü n küme kaydını geçmişle puanlar. */
-export async function previewInsider(n = 10): Promise<Array<InsiderRow & { assessment: Assessment }>> {
+export async function previewInsider(
+  n = 10
+): Promise<Array<InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null }>> {
   const records = await fetchClusterBuys();
   const top = records
     .map((r) => ({ r, pre: assess(r).score }))
     .sort((a, b) => b.pre - a.pre)
     .slice(0, Math.min(n, HISTORY_BATCH))
     .map((x) => x.r);
-  const out: Array<InsiderRow & { assessment: Assessment }> = [];
+  const out: Array<InsiderRow & { assessment: Assessment; superinvestors?: SuperContext | null }> = [];
   const histories = new Map<string, InsiderRow[]>();
   for (const r of top) {
     if (!histories.has(r.ticker)) histories.set(r.ticker, await fetchPurchaseHistory(r.ticker).catch(() => []));
     out.push({ ...r, assessment: assess(r, histories.get(r.ticker)) });
   }
-  return out.sort((a, b) => b.assessment.score - a.assessment.score);
+  out.sort((a, b) => b.assessment.score - a.assessment.score);
+  // Bağlam yalnızca bildirim eşiğini geçenlere (canlı gönderimdeki davranışın aynısı)
+  const sup = await superContexts(out.filter((r) => r.assessment.score >= MIN_SCORE).map((r) => r.ticker));
+  for (const r of out) if (sup.has(r.ticker)) r.superinvestors = sup.get(r.ticker);
+  return out;
 }

@@ -1,16 +1,30 @@
 // İÇERİDEN KÜME ALIMLARI (OpenInsider)
 // Aynı hissede birden fazla içeriden kişinin (yönetici, direktör, %10 sahip)
-// açık piyasa alımı güçlü bir sinyaldir. Bu katman OpenInsider'ın "latest
-// cluster buys" listesini çeker, her yeni kaydı 0-100 arası puanlar ve eşiği
-// geçenleri Telegram'a gönderir. İŞLEM YAPMAZ — yalnızca bildirim.
+// açık piyasa alımıdır. Bu katman OpenInsider'ın "latest cluster buys"
+// listesini çeker, her yeni kaydı 0-100 arası puanlar ve eşiği geçenleri
+// Telegram'a gönderir. İŞLEM YAPMAZ — yalnızca bildirim.
 //
 // PUANLAMA (her kural `reasons` içinde gerekçesiyle döner):
-//   Alıcı sayısı    2 kişi +10, 3-4 kişi +20, 5+ kişi +30
-//   Toplam tutar    ≥$100K +5, ≥$500K +10, ≥$1M +15, ≥$5M +25
-//   Pozisyon artışı yeni pozisyon veya ≥%20 +15, ≥%10 +10, ≥%5 +5
-//   Tazelik         işlem ≤7 gün önce +10, ≤30 gün önce +5
-//   Kuruş hisse     fiyat < $1  -10
-//   Rutin alım      kümedeki herkes rutin -25, bir kısmı -10, kimse +5
+//   ANA SİNYAL
+//   CEO + CFO       kümede ikisi birlikte aldıysa +50 (tek başına bildirim eşiğini geçer)
+//   İKİNCİL (yarım ağırlık — 2025 backtestinde tek başına ayrışmadı)
+//   Alıcı sayısı    2 kişi +5, 3-4 kişi +10, 5+ kişi +15
+//   Toplam tutar    ≥$100K +3, ≥$500K +5, ≥$1M +8, ≥$5M +12
+//   Pozisyon artışı yeni pozisyon veya ≥%20 +8, ≥%10 +5, ≥%5 +3
+//   Tazelik         işlem ≤7 gün önce +5, ≤30 gün önce +3
+//   Kuruş hisse     fiyat < $1  -5
+//   Rutin alım      kümedeki herkes rutin -12, bir kısmı -5, kimse +3
+//   İkincil faktörlerin toplamı en fazla ~42 olduğundan 40 eşiğini pratikte
+//   yalnızca CEO+CFO kümeleri geçer. $5 altı fiyat puanı değiştirmez; mesajda uyarılır.
+//
+// NEDEN (2025 backtesti, 1.343 küme, IWM'e göre 6 aylık fark, uçlar %5 kırpılmış):
+//   • Eski puan (tüm faktörler tam ağırlık) getiriyi sıralamadı; eşiği geçenler
+//     geçmeyenlerden −4,4 puan KÖTÜ gitti.
+//   • CEO ve CFO'nun birlikte aldığı kümeler diğerlerini +7,6 puan geçti
+//     [%95: +2,1; +13,2]; yılın iki yarısında da aynı yönde (+5,6 / +9,2).
+//     Yalnızca birinin (CEO veya CFO) katılması fark yaratmadı.
+//   • Bu şemayla bildirim alanlar (yılda ~268) diğerlerini +6,8 puan geçti [+1,4; +12,5].
+//   • $5 altı hisseler piyango gibi: ortalama IWM'i yener, medyan −17 puan.
 //
 // RUTİN ALICI: bilgi taşımayan planlı alımlar. İki şekilde tanınır:
 //   • Yıllık (Cohen-Malloy-Pomorski): önceki 3 yılın her birinde aynı ayda almış.
@@ -42,6 +56,9 @@ export function screenerUrl(ticker: string): string {
   return `${BASE_URL}/screener?s=${encodeURIComponent(ticker.toUpperCase())}&xp=1&fd=0&td=0&cnt=1000&page=1`;
 }
 const USER_AGENT = 'Mozilla/5.0 (compatible; borsa-paper-api/1.0)';
+// OpenInsider yavaş yanıt verebiliyor (23 Eyl 2026: küme sayfası ~9,7 sn) —
+// genel 10 sn sınırı taramayı düşürürdü; bu kaynak için daha uzun süre tanınır.
+const OPENINSIDER_TIMEOUT_MS = 20_000;
 
 export const MIN_SCORE = 40; // bildirim eşiği (B notu ve üstü)
 const HISTORY_BATCH = 12; // koşu başına çekilen hisse geçmişi
@@ -50,6 +67,12 @@ const ROUTINE_YEARS = 3;
 const FREQUENT_LOOKBACK_MONTHS = 6;
 const FREQUENT_MIN_MONTHS = 4;
 const CLUSTER_WINDOW_DAYS = 30;
+const CEO_CFO_BONUS = 50;
+const LOW_PRICE = 5; // bunun altı: mesajda "piyango dağılımı" uyarısı
+
+// Form 4 unvanları serbest metin: "Pres, CEO", "EVP, CFO", "COB, CEO, 10%" …
+const CEO_RE = /\bCEO\b|chief executive/i;
+const CFO_RE = /\bCFO\b|chief financial/i;
 
 export interface InsiderRow {
   ticker: string;
@@ -75,6 +98,9 @@ export interface Assessment {
   reasons: string[];
   members: string[];
   routine: string[];
+  ceo: boolean; // kümede CEO aldı
+  cfo: boolean; // kümede CFO aldı
+  lowPrice: boolean; // fiyat < $5
 }
 
 // ---- Ayrıştırma ----
@@ -178,7 +204,7 @@ export function parseTable(html: string): InsiderRow[] {
 
 async function getHtml(url: string): Promise<string> {
   bumpSubreq();
-  const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } }, OPENINSIDER_TIMEOUT_MS);
   if (!res.ok) throw new Error(`OpenInsider ${res.status}: ${url.split('?')[0]}`);
   return res.text();
 }
@@ -228,6 +254,26 @@ export function clusterMembers(
   return names;
 }
 
+/**
+ * Küme üyelerinin unvanlarında CEO ve CFO var mı? Yalnızca kümenin kendi
+ * alım satırlarına bakılır: yıllar önce CEO olup bugün direktör olan biri
+ * eski satırındaki unvanla CEO sayılmasın.
+ */
+export function clusterRoles(
+  rec: Pick<InsiderRow, 'tradeDate' | 'filingDate'>,
+  history: InsiderRow[],
+  members: string[]
+): { ceo: boolean; cfo: boolean } {
+  if (!rec.tradeDate) return { ceo: false, cfo: false };
+  const set = new Set(members);
+  const start = dayNum(rec.tradeDate) - CLUSTER_WINDOW_DAYS;
+  const end = Math.max(dayNum(rec.tradeDate), rec.filingDate ? dayNum(rec.filingDate) : 0);
+  const titles = history
+    .filter((r) => r.insider && set.has(r.insider) && r.tradeDate && dayNum(r.tradeDate) >= start && dayNum(r.tradeDate) <= end)
+    .map((r) => r.title ?? '');
+  return { ceo: titles.some((t) => CEO_RE.test(t)), cfo: titles.some((t) => CFO_RE.test(t)) };
+}
+
 function grade(score: number): Assessment['grade'] {
   return score >= 60 ? 'A' : score >= 40 ? 'B' : score >= 20 ? 'C' : 'D';
 }
@@ -238,7 +284,7 @@ export function assess(rec: InsiderRow, history?: InsiderRow[], today = new Date
   const reasons: string[] = [];
 
   const n = rec.insiders ?? 0;
-  const nPts = n >= 5 ? 30 : n >= 3 ? 20 : n >= 2 ? 10 : 0;
+  const nPts = n >= 5 ? 15 : n >= 3 ? 10 : n >= 2 ? 5 : 0;
   if (nPts) {
     score += nPts;
     reasons.push(`${n} içeriden alıcı (+${nPts})`);
@@ -246,10 +292,10 @@ export function assess(rec: InsiderRow, history?: InsiderRow[], today = new Date
 
   const value = rec.value ?? 0;
   for (const [limit, pts, label] of [
-    [5e6, 25, '$5M'],
-    [1e6, 15, '$1M'],
-    [5e5, 10, '$500K'],
-    [1e5, 5, '$100K'],
+    [5e6, 12, '$5M'],
+    [1e6, 8, '$1M'],
+    [5e5, 5, '$500K'],
+    [1e5, 3, '$100K'],
   ] as const) {
     if (value >= limit) {
       score += pts;
@@ -260,7 +306,7 @@ export function assess(rec: InsiderRow, history?: InsiderRow[], today = new Date
 
   const d = rec.deltaOwn;
   if (d != null) {
-    const pts = d >= 20 ? 15 : d >= 10 ? 10 : d >= 5 ? 5 : 0;
+    const pts = d >= 20 ? 8 : d >= 10 ? 5 : d >= 5 ? 3 : 0;
     if (pts) {
       score += pts;
       reasons.push(`${d === Infinity ? 'yeni pozisyon' : `pozisyon +%${d.toFixed(0)}`} (+${pts})`);
@@ -271,38 +317,45 @@ export function assess(rec: InsiderRow, history?: InsiderRow[], today = new Date
     const todayNum = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) / 86_400_000;
     const age = todayNum - dayNum(rec.tradeDate);
     if (age <= 7) {
-      score += 10;
-      reasons.push(`${age} gün önce (+10)`);
-    } else if (age <= 30) {
       score += 5;
       reasons.push(`${age} gün önce (+5)`);
+    } else if (age <= 30) {
+      score += 3;
+      reasons.push(`${age} gün önce (+3)`);
     }
   }
 
   if (rec.price != null && rec.price < 1) {
-    score -= 10;
-    reasons.push('kuruş hisse (-10)');
+    score -= 5;
+    reasons.push('kuruş hisse (-5)');
   }
 
   let members: string[] = [];
   let routine: string[] = [];
+  let roles = { ceo: false, cfo: false };
   if (history?.length && rec.tradeDate) {
     members = clusterMembers(rec, history);
     routine = members.filter((m) => isRoutine(m, rec.tradeDate!, history));
     if (members.length && routine.length === members.length) {
-      score -= 25;
-      reasons.push('tüm alıcılar rutin (-25)');
+      score -= 12;
+      reasons.push('tüm alıcılar rutin (-12)');
     } else if (routine.length) {
-      score -= 10;
-      reasons.push(`${routine.length}/${members.length} alıcı rutin (-10)`);
+      score -= 5;
+      reasons.push(`${routine.length}/${members.length} alıcı rutin (-5)`);
     } else if (members.length) {
-      score += 5;
-      reasons.push('fırsatçı alım, rutin yok (+5)');
+      score += 3;
+      reasons.push('fırsatçı alım, rutin yok (+3)');
+    }
+    roles = clusterRoles(rec, history, members);
+    if (roles.ceo && roles.cfo) {
+      score += CEO_CFO_BONUS;
+      reasons.unshift(`CEO ve CFO birlikte aldı (+${CEO_CFO_BONUS})`);
     }
   }
 
   score = Math.max(0, Math.min(100, score));
-  return { ticker: rec.ticker, score, grade: grade(score), reasons, members, routine };
+  const lowPrice = rec.price != null && rec.price < LOW_PRICE;
+  return { ticker: rec.ticker, score, grade: grade(score), reasons, members, routine, ...roles, lowPrice };
 }
 
 // ---- Biçimlendirme ----
@@ -316,10 +369,15 @@ function money(v: number | null): string {
 
 export function formatAlert(rec: InsiderRow, a: Assessment): string {
   const routine = a.members.length ? ` · rutin ${a.routine.length}/${a.members.length}` : '';
+  const badge = a.ceo && a.cfo ? ' 👔 CEO+CFO' : '';
+  const warn = a.lowPrice
+    ? `⚠️ $${LOW_PRICE} altı: bu grupta ortalama yüksek ama medyan kötü (piyango dağılımı)\n`
+    : '';
   return (
-    `<b>${esc(rec.ticker)}</b> ${esc(rec.company ?? '')} — puan <b>${a.score}</b> (${a.grade})\n` +
+    `<b>${esc(rec.ticker)}</b> ${esc(rec.company ?? '')} — puan <b>${a.score}</b> (${a.grade})${badge}\n` +
     `${rec.insiders ?? '?'} kişi · ${money(rec.value)} · $${(rec.price ?? 0).toFixed(2)} · ` +
     `işlem ${rec.tradeDate ?? '?'}${routine}\n` +
+    warn +
     `<i>${esc(a.reasons.join(', '))}</i>\n` +
     `http://openinsider.com/${encodeURIComponent(rec.ticker)}`
   );

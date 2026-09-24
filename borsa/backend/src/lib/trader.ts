@@ -83,6 +83,9 @@ const MAX_ENTRY_DAY_PCT = 6;
 const OPENING_LEADER_WINDOW_MIN = 60;
 const OPENING_LEADER_MIN_DAY_PCT = 5;
 const OPENING_LEADER_MAX_DAY_PCT = 15;
+// Piyasa rejimi filtresi (24 Eyl, kullanıcı onayı): düşenler yükselenlerin bu
+// katını aşarsa döngüde yeni düzenli giriş yok (kırmızı gün kanaması önlemi).
+const REGIME_DECLINER_RATIO = 1.3;
 // Günlük zarar freni: gün içi gerçekleşen zarar özkaynağın bu yüzdesini aşarsa
 // o gün yeni pozisyon açılmaz (çıkış/stop yönetimi çalışmaya devam eder).
 // 6 Tem dersi: bot her stop sonrası slotu hemen doldurup kanamayı büyüttü.
@@ -345,7 +348,8 @@ async function planEntries(
   portfolioId: string,
   config: BotConfig,
   candidates: ScanCandidate[],
-  openTrades: BotTrade[]
+  openTrades: BotTrade[],
+  breadth?: { advancers: number; decliners: number }
 ): Promise<EntryPlan> {
   const slots = config.max_positions - openTrades.length;
   if (slots <= 0) return NO_PLAN([]);
@@ -358,6 +362,24 @@ async function planEntries(
         text: `🛑 Günlük zarar freni: bugün gerçekleşen K/Z -$${Math.abs(brake.realized).toFixed(0)} (limit -$${brake.limit.toFixed(0)}) — bugün yeni giriş yok`,
       },
     ]);
+  }
+
+  // PİYASA REJİMİ FİLTRESİ (24 Eyl, kullanıcı onayı): kırmızı günlerde momentum
+  // girişleri ardışık stop yiyor — haftalık defterlerde kaybın ana kaynağı hep
+  // düşüş günleriydi (16-17 Eyl −$483, 23 Eyl −$596). Düşenler yükselenlerin
+  // 1.3 katından fazlaysa bu döngüde YENİ düzenli giriş yok; çıkış/stop yönetimi
+  // ve nabız/açılış-lideri istisnaları çalışmaya devam eder. Küçük örneklemde
+  // (tarama < 50 hisse) karar verme — gürültüden filtre tetiklenmesin.
+  if (breadth && breadth.advancers + breadth.decliners >= 50) {
+    if (breadth.decliners > breadth.advancers * REGIME_DECLINER_RATIO) {
+      return NO_PLAN([
+        {
+          text:
+            `🌧 Piyasa rejimi negatif: ${breadth.decliners}▼ / ${breadth.advancers}▲ ` +
+            `(eşik ${REGIME_DECLINER_RATIO}x) — bu döngüde yeni giriş yok, nabız girişleri açık`,
+        },
+      ]);
+    }
   }
 
   // Açılış ısınması: seansın ilk 45 dakikasında düzenli giriş YOK (nabız
@@ -852,7 +874,10 @@ export async function runTraderCycle(
   let entryPlan: EntryPlan | null = null;
   if (!nearClose && dataFresh) {
     try {
-      entryPlan = await planEntries(db, portfolioId, config, snapshot.all, openAfterExits);
+      entryPlan = await planEntries(db, portfolioId, config, snapshot.all, openAfterExits, {
+        advancers: snapshot.advancers,
+        decliners: snapshot.decliners,
+      });
       actions.push(...entryPlan.preActions.map((a) => a.text));
     } catch (e) {
       console.error('Giriş planı hatası (rapor yine gönderilecek):', e);

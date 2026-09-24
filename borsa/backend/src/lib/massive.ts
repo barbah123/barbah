@@ -191,6 +191,29 @@ export async function massiveQuote(symbol: string): Promise<Quote | null> {
   }
 }
 
+
+/** Günlük toplu barlar: verilen tarihte TÜM piyasanın günlük OHLCV'si (tek çağrı).
+ *  Backtest evren kurulumu için — geçmişte "o gün kim hareketliydi" ancak bununla
+ *  yeniden kurulabilir. Polygon şablonu: /v2/aggs/grouped/... */
+export interface GroupedDailyBar {
+  symbol: string;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+}
+export async function massiveGroupedDaily(date: string): Promise<GroupedDailyBar[]> {
+  const data = await mFetch(
+    `/v2/aggs/grouped/locale/us/market/stocks/${encodeURIComponent(date)}?adjusted=true`,
+    20000
+  );
+  const results: any[] = data?.results ?? [];
+  return results
+    .filter((r) => typeof r.T === 'string' && r.c > 0)
+    .map((r) => ({ symbol: String(r.T).toUpperCase(), o: r.o, h: r.h, l: r.l, c: r.c, v: r.v ?? 0 }));
+}
+
 /** Aggregates → gün içi/çok günlü OHLCV mumları. timespan: 'minute'|'day'. */
 export async function massiveAggregates(
   symbol: string,

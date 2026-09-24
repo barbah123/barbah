@@ -29,7 +29,7 @@ import {
   analyzeSymbol,
 } from './lib/kullamagi';
 import { getQuote } from './lib/data';
-import { setMassiveKey, massiveConfigured, massivePing } from './lib/massive';
+import { setMassiveKey, massiveConfigured, massivePing, massiveGroupedDaily, massiveAggregates } from './lib/massive';
 import { botRoutes } from './routes/bot';
 
 export interface Env {
@@ -265,6 +265,35 @@ export default {
 
       // Yönetici tanısı: son bot işlemleri (kapanan + açık) — raporda görünmeyen
       // gün içi işlem geçmişini incelemek için. ?hours=48 ile pencere ayarlanır.
+      // Backtest veri proxy'leri (24 Eyl): tarihsel veri Massive'ten yalnızca
+      // Worker üzerinden çekilir — anahtar dışarı çıkmaz. daily-bars: verilen
+      // tarihte tüm piyasanın günlük OHLCV'si (evren kurulumu). aggs: sembolün
+      // 5 dk mumları, açık from/to ile (gün-içi yeniden oynatma).
+      if (path === '/api/admin/daily-bars' && request.method === 'GET') {
+        const date = url.searchParams.get('date') ?? '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return error('date=YYYY-MM-DD gerekli');
+        if (!massiveConfigured()) return error('Massive yapılandırılmamış', 503);
+        try {
+          const bars = await massiveGroupedDaily(date);
+          // İnce kağıtları ele: yük küçülür, backtest zaten likit evren ister
+          const rows = bars.filter((b) => b.c >= 3 && b.c * b.v >= 1_000_000);
+          return json({ date, count: rows.length, bars: rows });
+        } catch (e: any) {
+          return error(`Massive hatası: ${String(e?.message ?? e)}`, 502);
+        }
+      }
+      if (path === '/api/admin/aggs' && request.method === 'GET') {
+        const symbol = (url.searchParams.get('symbol') ?? '').toUpperCase().trim();
+        const from = Number(url.searchParams.get('from'));
+        const to = Number(url.searchParams.get('to'));
+        if (!symbol || !Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+          return error('symbol, from, to (unix ms) gerekli');
+        }
+        if (!massiveConfigured()) return error('Massive yapılandırılmamış', 503);
+        const candles = await massiveAggregates(symbol, 5, 'minute', from, to);
+        return json({ symbol, count: candles.length, candles });
+      }
+
       if (path === '/api/admin/trades' && request.method === 'GET') {
         const hours = Math.min(720, Math.max(1, Number(url.searchParams.get('hours')) || 48));
         const { results } = await env.DB

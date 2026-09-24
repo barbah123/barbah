@@ -7,7 +7,7 @@
 //   5. Rapor            → her şey Telegram'a (10 dk'da bir cron)
 // Tüm emirler mevcut doğrulama + aracı yürütme katmanlarından geçer (source='bot').
 
-import { scanMarket, type ScanCandidate } from './scanner';
+import { scanMarket, computeRelativeVolume, type ScanCandidate } from './scanner';
 import { getQuotes } from './data';
 import { placeOrder } from './broker';
 import {
@@ -86,6 +86,20 @@ const OPENING_LEADER_MAX_DAY_PCT = 15;
 // Piyasa rejimi filtresi (24 Eyl, kullanıcı onayı): düşenler yükselenlerin bu
 // katını aşarsa döngüde yeni düzenli giriş yok (kırmızı gün kanaması önlemi).
 const REGIME_DECLINER_RATIO = 1.3;
+// Oynaklık bazlı stop/hedef (24 Eyl, kullanıcı onayı — Zarattini & Aziz'in ATR
+// yaklaşımının bütçe dostu hali): stop, adayın BUGÜNKÜ gerçekleşen aralığının
+// %35'i olur ve [%1.5, %4] bandına sıkıştırılır; hedef her zaman 1.5R. Sabit
+// %2/%3, sakin hissede gereksiz geniş, oynak hissede gürültüye stop demekti.
+// Boyutlama stop mesafesine bölündüğü için işlem başına risk %1'de sabit kalır.
+const VOL_STOP_RANGE_FRACTION = 0.35;
+const VOL_STOP_MIN_PCT = 1.5;
+const VOL_STOP_MAX_PCT = 4;
+const RISK_REWARD = 1.5;
+// "Stocks in play" kapısı (24 Eyl, kullanıcı onayı): düzenli girişler yalnızca
+// göreli hacmi bu eşiğin üzerindeki adaylara — anormal hacim yoksa hareketin
+// arkasında katılım yok demektir (Zarattini & Aziz 2023: kârlılık açılış göreli
+// hacmiyle sınırlanınca işlem maliyetleri sonrası bile pozitifti).
+const IN_PLAY_MIN_RELVOL = 1.5;
 // Günlük zarar freni: gün içi gerçekleşen zarar özkaynağın bu yüzdesini aşarsa
 // o gün yeni pozisyon açılmaz (çıkış/stop yönetimi çalışmaya devam eder).
 // 6 Tem dersi: bot her stop sonrası slotu hemen doldurup kanamayı büyüttü.
@@ -514,16 +528,31 @@ async function executeEntryPlan(
   }
 
   cleared.sort((a, b) => entryRank(b.pick) + b.boost - (entryRank(a.pick) + a.boost));
-  const picks = cleared.slice(0, plan.slots);
 
-  for (const { pick, intelNotes } of picks) {
+  // "Stocks in play" kapısı: giriş sırası gelen adayın göreli hacmine bakılır
+  // (sembol başına 1 istek — rapor gönderildikten sonra koştuğumuz için güvenli).
+  // Eşiğin altındakiler atlanır, sıradaki aday değerlendirilir; veri alınamazsa
+  // engelleme yapılmaz (fail-open) — kapı sinyal ister, ceza değil.
+  let slotsLeft = plan.slots;
+  for (const { pick, intelNotes } of cleared) {
+    if (slotsLeft <= 0) break;
+    const relVol = await computeRelativeVolume(pick.symbol).catch(() => null);
+    if (relVol != null && relVol < IN_PLAY_MIN_RELVOL) {
+      actions.push({
+        text: `🪫 ${pick.symbol} atlandı: göreli hacim ${relVol.toFixed(1)}x < ${IN_PLAY_MIN_RELVOL}x — "in play" değil`,
+      });
+      continue;
+    }
+    const notes = relVol != null ? [`hacim ${relVol.toFixed(1)}x`, ...intelNotes] : intelNotes;
     const res = await executeEntry(db, portfolioId, config, plan.equity, cash, {
       symbol: pick.symbol,
       price: pick.price,
       momentumPercent: pick.momentumPercent,
       dayChangePercent: pick.dayChangePercent,
-    }, intelNotes);
+      rangePercent: pick.rangePercent,
+    }, notes);
     if (res.action) actions.push(res.action);
+    if (res.spent > 0) slotsLeft--;
     cash -= res.spent;
   }
   return actions;
@@ -534,6 +563,9 @@ export interface EntryPick {
   price: number;
   momentumPercent: number;
   dayChangePercent: number;
+  // Bugünkü gerçekleşen aralık (önceki kapanışın yüzdesi) — oynaklık bazlı
+  // stop/hedef için. Yoksa (örn. nabız girişi) sabit config yüzdelerine düşülür.
+  rangePercent?: number;
 }
 
 /** Pozisyon büyüklüğü + emir + bot defteri kaydı: hem 10 dk döngüsü hem nabız girişi kullanır. */
@@ -547,9 +579,16 @@ async function executeEntry(
   intelNotes: string[],
   momentumWindow = '30dk'
 ): Promise<{ action: CycleAction | null; spent: number }> {
+  // Oynaklık bazlı stop/hedef: aralık verisi varsa ondan, yoksa sabit config
+  const hasRange = pick.rangePercent != null && pick.rangePercent > 0;
+  const stopPct = hasRange
+    ? Math.min(Math.max(pick.rangePercent! * VOL_STOP_RANGE_FRACTION, VOL_STOP_MIN_PCT), VOL_STOP_MAX_PCT)
+    : config.stop_loss_pct;
+  const targetPct = hasRange ? stopPct * RISK_REWARD : config.take_profit_pct;
+
   // Pozisyon büyüklüğü: riske edilen tutar = özkaynak × risk%; stop mesafesine bölünür
   const riskAmount = equity * (config.risk_per_trade_pct / 100);
-  const stopDistance = pick.price * (config.stop_loss_pct / 100);
+  const stopDistance = pick.price * (stopPct / 100);
   let qty = Math.floor(riskAmount / stopDistance);
   // Tavanlar: tek pozisyon özkaynağın max_position_pct'sini ve nakdi aşamaz
   qty = Math.min(
@@ -578,8 +617,8 @@ async function executeEntry(
     };
   }
   const entry = result.order.fill_price ?? pick.price;
-  const stopLoss = entry * (1 - config.stop_loss_pct / 100);
-  const takeProfit = entry * (1 + config.take_profit_pct / 100);
+  const stopLoss = entry * (1 - stopPct / 100);
+  const takeProfit = entry * (1 + targetPct / 100);
   await db
     .prepare(
       `INSERT INTO bot_trades (id, portfolio_id, symbol, quantity, entry_price, stop_loss, take_profit, high_water, entry_reason)

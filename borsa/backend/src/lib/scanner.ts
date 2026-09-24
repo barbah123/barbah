@@ -140,8 +140,9 @@ function analyze(symbol: string, s: SparkSeries): ScanCandidate {
   };
 }
 
-/** Adayın bugünkü ortalama bar hacmini önceki günlerinkiyle karşılaştırır. */
-async function computeRelativeVolume(symbol: string): Promise<number | null> {
+/** Adayın bugünkü ortalama bar hacmini önceki günlerinkiyle karşılaştırır.
+ *  (trader'ın "stocks in play" kapısı da kullanır — sembol başına 1 istek) */
+export async function computeRelativeVolume(symbol: string): Promise<number | null> {
   try {
     const candles = await getCandles(symbol, '5m', '5d');
     if (candles.length < 50) return null;

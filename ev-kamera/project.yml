@@ -1,0 +1,50 @@
+# XcodeGen tanımı: GitHub Actions'taki macOS sunucusunda Mac'siz .ipa üretmek için.
+# (Swift Playgrounds / Xcode doğrudan EvKamera.swiftpm'i açar; bu dosyaya ihtiyaç duymaz.)
+name: EvKamera
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  EvKamera:
+    type: application
+    platform: iOS
+    sources:
+      - path: EvKamera.swiftpm
+        type: group
+        excludes:
+          - Package.swift
+    info:
+      path: build-info/Info.plist
+      properties:
+        CFBundleDisplayName: Ev Kamerası
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Ön kamera ev güvenlik kamerası olarak kullanılır.
+        NSLocalNetworkUsageDescription: Kamera görüntüsünü Wi‑Fi üzerinden kendi cihazlarına yayınlamak için.
+        NSBonjourServices:
+          - _http._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.barbah.evkamera
+        PRODUCT_NAME: EvKamera
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+schemes:
+  EvKamera:
+    build:
+      targets:
+        EvKamera: all

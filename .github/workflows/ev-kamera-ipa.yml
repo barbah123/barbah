@@ -1,0 +1,52 @@
+name: Ev Kamerası .ipa
+
+# Mac olmadan iPad uygulaması derler: imzasız .ipa üretir.
+# İmzalama/kurulum iPad'de SideStore (veya AltStore) ile kendi Apple ID'nle yapılır.
+
+on:
+  push:
+    paths:
+      - 'ev-kamera/**'
+      - '.github/workflows/ev-kamera-ipa.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ev-kamera
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen kur
+        run: brew install xcodegen
+
+      - name: Xcode projesi üret
+        run: xcodegen generate
+
+      - name: Derle (imzasız)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project EvKamera.xcodeproj \
+            -scheme EvKamera \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 80
+
+      - name: .ipa paketle
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/EvKamera.app Payload/
+          zip -qry EvKamera.ipa Payload
+          ls -lh EvKamera.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EvKamera-ipa
+          path: ev-kamera/EvKamera.ipa
+          retention-days: 90

@@ -1,0 +1,135 @@
+/// Tarayıcıda açılan izleme sayfası (telefon, bilgisayar, başka tablet).
+enum WebPage {
+    static let html = #"""
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0d10">
+<title>Ev Kamerası</title>
+<style>
+:root{color-scheme:dark;--bg:#0b0d10;--card:#161a21;--line:#262c36;--fg:#e8eaed;--mut:#8b94a1;--acc:#4ea1ff;--bad:#ff5d5d;--ok:#3ecf8e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:1100px;margin:0 auto;padding:14px 16px}
+h1{font-size:18px;margin:0;flex:1}
+.pill{font-size:12px;padding:4px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+main{max-width:1100px;margin:0 auto;padding:0 16px 40px}
+.view{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:16/9;border:1px solid var(--line)}
+.view img{width:100%;height:100%;object-fit:contain;display:block}
+.view .msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--mut);text-align:center;padding:16px}
+.view.stale .msg{display:flex;background:rgba(0,0,0,.6)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+button,.btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;padding:9px 14px;border-radius:10px;cursor:pointer;text-decoration:none}
+button:hover,.btn:hover{border-color:var(--acc)}
+h2{font-size:14px;margin:26px 0 10px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.grid a{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;color:var(--mut);text-decoration:none;font-size:12px}
+.grid img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#000}
+.grid span{display:block;padding:5px 8px}
+.empty{color:var(--mut)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏠 Ev Kamerası</h1>
+  <span id="st" class="pill">Bağlanıyor…</span>
+  <span id="bat" class="pill" hidden></span>
+  <span id="vw" class="pill" hidden></span>
+</header>
+<main>
+  <div id="view" class="view">
+    <img id="cam" alt="Canlı görüntü">
+    <div class="msg" id="msg">Kamera şu an görüntü göndermiyor.<br>iPad'de uygulama ön planda mı?</div>
+  </div>
+  <div class="bar">
+    <button id="pause">Duraklat</button>
+    <button id="re">Yeniden bağlan</button>
+    <a class="btn" id="snap" href="/snapshot.jpg" target="_blank">Anlık fotoğraf</a>
+  </div>
+  <h2>Hareket kayıtları</h2>
+  <div id="ev" class="grid"></div>
+  <p id="noev" class="empty" hidden>Henüz hareket kaydı yok.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const cam = $('cam');
+let paused = false;
+
+function connect() { cam.src = '/stream?t=' + Date.now(); }
+function disconnect() { cam.src = 'data:,'; }
+
+cam.addEventListener('error', () => {
+  if (!paused && !document.hidden && !cam.src.startsWith('data:')) setTimeout(connect, 2000);
+});
+$('re').onclick = () => { paused = false; $('pause').textContent = 'Duraklat'; connect(); };
+$('pause').onclick = e => {
+  paused = !paused;
+  if (paused) { cam.src = '/snapshot.jpg?t=' + Date.now(); e.target.textContent = 'Devam et'; }
+  else { connect(); e.target.textContent = 'Duraklat'; }
+};
+// Sekme arka plandayken veri harcamasın.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) disconnect(); else if (!paused) connect();
+});
+
+async function status() {
+  try {
+    const r = await fetch('/api/status', {cache: 'no-store'});
+    const s = await r.json();
+    const live = s.frameAge !== undefined && s.frameAge < 5;
+    $('st').textContent = live ? '● Canlı' : '● Kamera durdu';
+    $('st').className = 'pill ' + (live ? 'ok' : 'bad');
+    $('view').classList.toggle('stale', !live);
+    if (s.battery !== undefined) {
+      $('bat').hidden = false;
+      $('bat').textContent = '🔋 %' + s.battery + (s.charging ? ' ⚡' : '');
+      $('bat').className = 'pill' + (s.battery < 20 && !s.charging ? ' bad' : '');
+    }
+    $('vw').hidden = false;
+    $('vw').textContent = '👁 ' + s.viewers;
+  } catch (e) {
+    $('st').textContent = '● Bağlantı yok';
+    $('st').className = 'pill bad';
+  }
+}
+
+let lastKey = '';
+async function events() {
+  try {
+    const r = await fetch('/api/events', {cache: 'no-store'});
+    const list = await r.json();
+    const key = list.map(e => e.name).join(',');
+    if (key === lastKey) return;
+    lastKey = key;
+    const grid = $('ev');
+    grid.replaceChildren();
+    $('noev').hidden = list.length > 0;
+    for (const e of list) {
+      const a = document.createElement('a');
+      a.href = '/events/' + encodeURIComponent(e.name);
+      a.target = '_blank';
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.src = a.href;
+      img.alt = '';
+      const span = document.createElement('span');
+      span.textContent = new Date(e.time).toLocaleString('tr-TR');
+      a.append(img, span);
+      grid.append(a);
+    }
+  } catch (e) {}
+}
+
+connect();
+status(); events();
+setInterval(status, 5000);
+setInterval(events, 20000);
+</script>
+</body>
+</html>
+"""#
+}

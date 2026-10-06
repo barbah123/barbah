@@ -34,29 +34,53 @@ kamera durur. Pratikteki çözüm şu:
 | iPad'i başka işte de kullanmak | Split View / Slide Over'da yan yana açık bırak |
 | Kamera durursa haberim olsun | Telegram'a "arka plana alındı" mesajı gelir; web sayfası "Kamera durdu" gösterir |
 
-## Kurulum
+## Kurulum (Mac gerekmez)
 
-Uygulama bir **Swift Playgrounds uygulama paketi** (`EvKamera.swiftpm`). İki yoldan biriyle kurulur.
+Hedef: uygulamanın iPad'de **kendi simgesiyle, bağımsız** kurulu olması (Swift Playgrounds'un
+açık durmasına gerek kalmadan). İki yol var:
 
-### Yol A: Mac yok, sadece iPad (Swift Playgrounds)
+| | Yol 1: TestFlight | Yol 2: SideStore |
+|---|---|---|
+| Bilgisayar | **Hiç gerekmez** (her şey iPad'de) | Kurulumda **bir kez** Windows/Linux bilgisayar (arkadaşınınki olur) |
+| Ücret | Apple Developer Programı (yıllık ücretli) | Ücretsiz Apple ID |
+| Yenileme | Her 90 günde bir Playgrounds'tan yeniden yükle | 7 günde bir, iPad'de tek dokunuş (otomatik de yapılabilir) |
 
-1. iPad'e App Store'dan ücretsiz **Swift Playgrounds** uygulamasını kur.
-2. Bu repoyu iPad'de ZIP olarak indir (GitHub → Code → Download ZIP) ve **Dosyalar** uygulamasında aç.
-3. `ev-kamera/EvKamera.swiftpm` klasörüne dokun. Swift Playgrounds'ta açılır.
-4. ▶︎ **Çalıştır**'a bas. İlk açılışta **Kamera** ve **Yerel Ağ** izinlerine **İzin Ver** de.
+### Yol 1: Swift Playgrounds → TestFlight (bilgisayarsız)
 
-> Bu yolda uygulama Playgrounds'un içinde çalışır; Playgrounds açık ve ön planda kalmalı.
+1. [developer.apple.com](https://developer.apple.com/programs/) üzerinden Apple Developer
+   Programı'na katıl (iPad'deki "Apple Developer" uygulamasından da olur).
+2. iPad'e **Swift Playgrounds** ve **TestFlight** uygulamalarını kur.
+3. Repoyu iPad'de ZIP olarak indir (GitHub → Code → Download ZIP), Dosyalar'da aç,
+   `ev-kamera/EvKamera.swiftpm`'e dokun. Playgrounds'ta açılır.
+4. Playgrounds'ta **Uygulama Ayarları** → **Takım**'dan geliştirici hesabını seç.
+5. **App Store Connect'e Yükle**'ye bas. Gerekirse paket kimliğini (`com.barbah.evkamera`)
+   kendine özgü bir şeyle değiştir.
+6. Safari'de [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → uygulama →
+   **TestFlight** → **Dahili Test** grubuna kendini ekle. Dahili testte Apple incelemesi yoktur
+   ve uygulama sadece senin hesabındaki cihazlara kurulur.
+7. iPad'de TestFlight'ı aç → **Ev Kamerası** → **Yükle**. Artık ana ekranda kendi simgesiyle durur.
 
-### Yol B: Mac + Xcode ile iPad'e ayrı uygulama olarak kur (önerilen)
+### Yol 2: SideStore ile ücretsiz kurulum (hazır .ipa)
 
-1. Mac'te Xcode 15+ ile `ev-kamera/EvKamera.swiftpm` klasörünü aç.
-2. Sol üstte proje → **Signing & Capabilities** → **Team** olarak kendi Apple ID'ni seç
-   (ücretsiz "Personal Team" yeterli).
-3. iPad'i kabloyla bağla, hedef olarak iPad'i seç, ▶︎ Run.
-4. iPad'de: **Ayarlar › Genel › VPN ve Cihaz Yönetimi** → geliştirici profiline **Güven**.
+Repo, her değişiklikte uygulamayı GitHub'ın Mac sunucularında otomatik derleyip
+`EvKamera.ipa` üretir (`.github/workflows/ev-kamera-ipa.yml`). Senin Mac'e ihtiyacın yok.
 
-> Ücretsiz Apple ID ile imzalanan uygulama **7 gün** çalışır; sonra Xcode'dan tekrar Run etmen gerekir.
-> Ücretli geliştirici hesabıyla (yıllık) bu süre 1 yıldır. Uygulama yalnızca senin cihazına kurulur.
+1. **SideStore**'u iPad'e bir kez kur: [docs.sidestore.io](https://docs.sidestore.io) adresindeki
+   adımlarla (Windows/Linux bilgisayarda bir kerelik işlem). Ardından SideStore tamamen
+   iPad'de çalışır.
+2. iPad'de Safari ile GitHub'a giriş yap → repo → **Actions** → **Ev Kamerası .ipa** → en son
+   yeşil çalışma → **Artifacts** bölümünden `EvKamera-ipa`'yı indir.
+3. Dosyalar'da ZIP'e dokunup aç → `EvKamera.ipa` → **Paylaş** → **SideStore**
+   (veya SideStore'da **My Apps** → **+** → dosyayı seç).
+4. SideStore, uygulamayı ücretsiz Apple ID'nle imzalayıp kurar.
+   **Ayarlar › Genel › VPN ve Cihaz Yönetimi**'nde geliştiriciye **Güven** de.
+5. Her 7 günde bir SideStore'u açıp **Refresh All**'a bas, ya da Kestirmeler'le otomatikleştir.
+
+> İlk açılışta **Kamera** ve **Yerel Ağ** izinlerine **İzin Ver** de.
+
+### (Alternatif) Mac varsa
+
+Xcode 15+ ile `EvKamera.swiftpm`'i aç → Signing'de kendi Apple ID'ni seç → iPad'e Run.
 
 ## Kullanım
 

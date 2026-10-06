@@ -10,6 +10,7 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showPassword = false
     @State private var confirmDelete = false
+    @State private var newPIN = ""
 
     var body: some View {
         ZStack {
@@ -25,11 +26,16 @@ struct ContentView: View {
                 }
             }
 
-            if model.dimmed {
+            switch model.screen {
+            case .normal:
+                EmptyView()
+            case .dark:
                 dimOverlay
+            case .lock:
+                LockScreenView()
             }
         }
-        .statusBarHidden(model.dimmed)
+        .statusBarHidden(model.screen == .dark)
         .persistentSystemOverlays(model.dimmed ? .hidden : .automatic)
     }
 
@@ -168,10 +174,33 @@ struct ContentView: View {
             }
 
             Section {
+                LabeledContent("Durum", value: settings.hasPIN ? "Şifre ayarlı ✓" : "Ayarlı değil")
+                SecureField(settings.hasPIN ? "Yeni şifre (4–8 rakam)" : "Şifre belirle (4–8 rakam)", text: $newPIN)
+                    .keyboardType(.numberPad)
+                    .onChange(of: newPIN) { _, value in
+                        let digits = String(value.filter { $0.isASCII && $0.isNumber }.prefix(8))
+                        if digits != value { newPIN = digits }
+                    }
+                Button(settings.hasPIN ? "Şifreyi değiştir" : "Şifreyi kaydet") {
+                    settings.setPIN(newPIN)
+                    newPIN = ""
+                }
+                .disabled(!AppSettings.isValidPIN(newPIN))
+                if settings.hasPIN {
+                    Button("Şifreyi kaldır", role: .destructive) { settings.removePIN() }
+                }
+            } header: {
+                Text("Kilit ekranı")
+            } footer: {
+                Text("Şifre ayarlıysa karartılmış ekrana dokununca iPad kilit ekranına benzeyen bir ekran çıkar; uygulamaya dönmek için bu şifre gerekir. 20 sn dokunulmazsa tekrar kararır. Yanlış girişte ön kameradan fotoğraf çekilip kaydedilir (Telegram ayarlıysa gönderilir); 5 yanlışta 1 dk beklenir. Uygulama her açılışta kilitli başlar.")
+            }
+
+            Section {
                 Button {
                     model.dim()
                 } label: {
-                    Label("Ekranı karart (kamera çalışmaya devam eder)", systemImage: "moon.fill")
+                    Label(settings.hasPIN ? "Ekranı karart ve kilitle" : "Ekranı karart (kamera çalışmaya devam eder)",
+                          systemImage: settings.hasPIN ? "lock.fill" : "moon.fill")
                 }
                 Button(role: model.monitoring ? .destructive : nil) {
                     model.toggleMonitoring()
@@ -206,12 +235,14 @@ struct ContentView: View {
         Color.black
             .ignoresSafeArea()
             .overlay(alignment: .bottom) {
-                Text("Kamera çalışıyor • açmak için dokun")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.2))
-                    .padding(.bottom, 40)
+                if !settings.hasPIN {
+                    Text("Kamera çalışıyor • açmak için dokun")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.2))
+                        .padding(.bottom, 40)
+                }
             }
             .contentShape(Rectangle())
-            .onTapGesture { model.undim() }
+            .onTapGesture { model.wake() }
     }
 }

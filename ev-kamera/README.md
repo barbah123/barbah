@@ -15,7 +15,10 @@ Bu proje repodaki diğer uygulamalardan bağımsızdır (`ev-kamera/`).
   Art arda 10 hatalı denemede o IP 15 dakika kilitlenir
 - 🚶 Hareket algılama: hareket anının fotoğrafı iPad'e kaydedilir (son 300 kayıt), web sayfasında listelenir
 - 📲 İsteğe bağlı **Telegram** bildirimi: hareket fotoğrafı, "uygulama kapandı" ve "şarj azaldı" uyarıları
-- 🌙 Ekran karartma: kamera çalışırken ekran tamamen kararır, dokununca geri gelir
+- 🌙 Ekran karartma: kamera çalışırken ekran tamamen kararır
+- 🔒 Sahte kilit ekranı: karanlık ekrana dokununca iPad kilit ekranına benzeyen bir ekran (saat, tarih,
+  "açmak için yukarı kaydırın") çıkar. Uygulamaya dönmek için kendi belirlediğin 4–8 haneli şifre
+  gerekir. Yanlış girenin fotoğrafı ön kameradan çekilir, kaydedilir ve Telegram'a gönderilir
 - 🔄 Ekran otomatik kilitlenmez. Kamera kesilirse (ör. FaceTime) sonra kendiliğinden devam eder
 - 🪟 iPadOS 16+ Split View / Slide Over / Stage Manager'da da kamera çalışmaya devam eder
   (cihaz destekliyorsa)
@@ -95,10 +98,26 @@ Web sayfasında canlı görüntü, pil durumu, izleyen sayısı ve hareket kayı
 
 > 💡 Modemde iPad'e **sabit IP** (DHCP rezervasyonu) verirsen adres hiç değişmez.
 
+### Kilit ekranı şifresi
+
+Paneldeki **Kilit ekranı** bölümünden 4–8 haneli bir şifre belirle. Bundan sonra:
+
+- **Ekranı karart ve kilitle** ile ekran simsiyah olur. Kamera ve yayın çalışmaya devam eder.
+- Ekrana dokunulunca iPad kilit ekranına benzeyen ekran açılır. Yukarı kaydırınca (veya dokununca)
+  şifre tuş takımı gelir. 20 saniye dokunulmazsa ekran tekrar kararır.
+- Yanlış şifrede ön kameradan fotoğraf çekilip hareket kayıtlarına eklenir, Telegram ayarlıysa
+  sana gönderilir. 5 yanlış denemede tuş takımı 1 dakika kilitlenir.
+- Uygulama her açılışta karanlık ve kilitli başlar. Biri uygulamayı kapatıp açsa bile ayarlara ulaşamaz.
+- Şifreyi unutursan: uygulamayı silip yeniden kurman gerekir (kayıtlar ve ayarlar da silinir).
+
+> Bu ekran uygulamanın içindedir. Gerçek iPad kilidi değildir. Birinin ana ekran hareketiyle
+> uygulamadan çıkmasını engellemek için aşağıdaki **Rehberli Erişim**'i de aç.
+
 ### Rehberli Erişim (uygulamaya kilitleme)
 
 **Ayarlar › Erişilebilirlik › Rehberli Erişim**'i aç, bir kod belirle. Uygulama açıkken yan
-(veya ana ekran) tuşuna 3 kez bas → **Başlat**. Artık kodu bilmeyen kimse uygulamadan çıkamaz.
+(veya ana ekran) tuşuna 3 kez bas → **Seçenekler**'de **Uyut/Uyandır Tuşu**'nu kapat → **Başlat**.
+Artık kodu bilmeyen kimse uygulamadan çıkamaz ve yan tuşla iPad'i kilitleyip kamerayı durduramaz.
 Aynı menüde **Ekran Otomatik Kilidi: Hiçbir Zaman** seç.
 
 ## Evin dışından erişim (Tailscale)
@@ -141,6 +160,7 @@ ev-kamera/EvKamera.swiftpm/
 ├── EvKameraApp.swift    # Giriş noktası
 ├── AppModel.swift       # Kamera + sunucu + kayıtları bağlar, yaşam döngüsü, pil, karartma
 ├── ContentView.swift    # iPad arayüzü (önizleme + ayarlar)
+├── LockScreenView.swift # Sahte kilit ekranı + şifre tuş takımı
 ├── CameraManager.swift  # AVFoundation ön kamera, JPEG kodlama, hareket algılama
 ├── WebServer.swift      # Network.framework HTTP sunucusu, MJPEG yayını, Basic Auth
 ├── WebPage.swift        # Tarayıcıda açılan izleme sayfası

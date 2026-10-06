@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 
 /// Kullanıcı ayarları. `@Published` alanlar arayüz içindir; `stored…` statik
@@ -13,6 +14,9 @@ final class AppSettings: ObservableObject {
         static let sensitivity = "sensitivity"
         static let telegramToken = "telegramToken"
         static let telegramChatID = "telegramChatID"
+        static let pinHash = "pinHash"
+        static let pinSalt = "pinSalt"
+        static let pinLength = "pinLength"
     }
 
     private static let defaults = UserDefaults.standard
@@ -22,6 +26,44 @@ final class AppSettings: ObservableObject {
     static var storedSensitivity: Double { defaults.object(forKey: Key.sensitivity) as? Double ?? 0.5 }
     static var storedTelegramToken: String { defaults.string(forKey: Key.telegramToken) ?? "" }
     static var storedTelegramChatID: String { defaults.string(forKey: Key.telegramChatID) ?? "" }
+
+    // MARK: Kilit ekranı şifresi (yalnızca tuzlu SHA-256 özeti saklanır)
+
+    static let pinLengths = 4...8
+    static var storedHasPIN: Bool { defaults.string(forKey: Key.pinHash) != nil }
+    static var pinLength: Int { defaults.integer(forKey: Key.pinLength) }
+
+    static func verifyPIN(_ pin: String) -> Bool {
+        guard let stored = defaults.string(forKey: Key.pinHash),
+              let salt = defaults.string(forKey: Key.pinSalt) else { return false }
+        return hash(pin, salt: salt) == stored
+    }
+
+    private static func hash(_ pin: String, salt: String) -> String {
+        SHA256.hash(data: Data((salt + pin).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func isValidPIN(_ pin: String) -> Bool {
+        pinLengths.contains(pin.count) && pin.allSatisfy(\.isASCII) && pin.allSatisfy(\.isNumber)
+    }
+
+    @Published private(set) var hasPIN: Bool = AppSettings.storedHasPIN
+
+    func setPIN(_ pin: String) {
+        guard Self.isValidPIN(pin) else { return }
+        let salt = UUID().uuidString
+        Self.defaults.set(salt, forKey: Key.pinSalt)
+        Self.defaults.set(Self.hash(pin, salt: salt), forKey: Key.pinHash)
+        Self.defaults.set(pin.count, forKey: Key.pinLength)
+        hasPIN = true
+    }
+
+    func removePIN() {
+        [Key.pinHash, Key.pinSalt, Key.pinLength].forEach(Self.defaults.removeObject(forKey:))
+        hasPIN = false
+    }
+
+    // MARK: Diğer ayarlar
 
     @Published var password: String { didSet { Self.defaults.set(password, forKey: Key.password) } }
     @Published var motionEnabled: Bool { didSet { Self.defaults.set(motionEnabled, forKey: Key.motionEnabled) } }

@@ -11,13 +11,29 @@ final class AppModel: ObservableObject {
     let server: WebServer
 
     @Published private(set) var monitoring = false
-    @Published private(set) var dimmed = false
+    /// Ekranın ne gösterdiği: normal arayüz, siyah ekran ya da sahte kilit ekranı.
+    @Published private(set) var screen: ScreenMode = .normal
+    @Published private(set) var lockoutUntil: Date?
     @Published private(set) var addresses: [ServerAddress] = []
     @Published var telegramResult: String?
 
     private var savedBrightness: CGFloat = 0.5
     private var timer: Timer?
     private var lowBatteryWarned = false
+    private var lockTimeout: DispatchWorkItem?
+    private var failedUnlocks = 0
+
+    enum ScreenMode {
+        case normal
+        case dark
+        case lock
+    }
+
+    var dimmed: Bool { screen != .normal }
+
+    static let lockScreenTimeout: TimeInterval = 20
+    static let maxUnlockAttempts = 5
+    static let unlockLockout: TimeInterval = 60
 
     init() {
         let camera = CameraManager()
@@ -33,8 +49,12 @@ final class AppModel: ObservableObject {
         }
 
         UIDevice.current.isBatteryMonitoringEnabled = true
-        // Uygulama açılır açılmaz izlemeye başla.
-        DispatchQueue.main.async { self.startMonitoring() }
+        // Uygulama açılır açılmaz izlemeye başla. Şifre ayarlıysa, biri uygulamayı
+        // yeniden açsa bile ayarlara ulaşamasın diye karanlık ve kilitli başla.
+        DispatchQueue.main.async {
+            self.startMonitoring()
+            if AppSettings.storedHasPIN { self.dim() }
+        }
     }
 
     // MARK: - İzleme
@@ -89,7 +109,7 @@ final class AppModel: ObservableObject {
                 server.start()
                 tick()
             }
-            if dimmed { UIScreen.main.brightness = 0 }
+            if screen == .dark { UIScreen.main.brightness = 0 }
         case .background:
             if monitoring { warnBackgrounded() }
         default:
@@ -112,19 +132,74 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - Ekran karartma
+    // MARK: - Ekran karartma ve kilit ekranı
 
     func dim() {
-        savedBrightness = UIScreen.main.brightness
+        if screen == .normal {
+            savedBrightness = max(UIScreen.main.brightness, 0.3)
+        }
+        lockTimeout?.cancel()
         UIScreen.main.brightness = 0
         camera.previewEnabled = false
-        dimmed = true
+        screen = .dark
+    }
+
+    /// Siyah ekrana dokunulunca: şifre varsa kilit ekranı, yoksa doğrudan arayüz.
+    func wake() {
+        guard screen == .dark else { return }
+        guard AppSettings.storedHasPIN else { return undim() }
+        UIScreen.main.brightness = savedBrightness
+        screen = .lock
+        lockScreenActivity()
+    }
+
+    /// Kilit ekranında her dokunuşta çağrılır; bir süre dokunulmazsa tekrar kararır.
+    func lockScreenActivity() {
+        lockTimeout?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.screen == .lock else { return }
+            self.dim()
+        }
+        lockTimeout = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.lockScreenTimeout, execute: item)
+    }
+
+    /// Doğruysa arayüzü açar. Yanlışsa ön kameradan fotoğrafı kaydeder ve Telegram'a yollar.
+    func tryUnlock(_ pin: String) -> Bool {
+        lockScreenActivity()
+        if let until = lockoutUntil, until > Date() { return false }
+
+        if AppSettings.verifyPIN(pin) {
+            failedUnlocks = 0
+            lockoutUntil = nil
+            undim()
+            return true
+        }
+
+        failedUnlocks += 1
+        reportFailedUnlock(attempt: failedUnlocks)
+        if failedUnlocks % Self.maxUnlockAttempts == 0 {
+            lockoutUntil = Date().addingTimeInterval(Self.unlockLockout)
+        }
+        return false
+    }
+
+    private func reportFailedUnlock(attempt: Int) {
+        let time = Date().formatted(date: .omitted, time: .standard)
+        let caption = "🔒 Kilit ekranında yanlış şifre (\(attempt). deneme) – \(time)"
+        if let (jpeg, _) = camera.frames.latest() {
+            events.save(jpeg)
+            Telegram.sendPhoto(jpeg, caption: caption)
+        } else {
+            Telegram.sendMessage(caption)
+        }
     }
 
     func undim() {
+        lockTimeout?.cancel()
         UIScreen.main.brightness = savedBrightness
         camera.previewEnabled = true
-        dimmed = false
+        screen = .normal
     }
 
     // MARK: - Telegram

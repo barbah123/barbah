@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:id="@+id/content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                style="@style/Body"
+                android:text="🏠 Ev Kamerası"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="320dp"
+                android:layout_marginTop="12dp"
+                android:background="@android:color/black">
+
+                <ImageView
+                    android:id="@+id/preview"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="Kamera önizleme"
+                    android:scaleType="fitCenter" />
+
+                <TextView
+                    android:id="@+id/previewBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="10dp"
+                    android:background="#99000000"
+                    android:paddingStart="10dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="4dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+
+            <!-- Durum -->
+            <TextView style="@style/Section" android:text="Durum" />
+            <LinearLayout style="@style/Card">
+                <TextView android:id="@+id/tvCamera" style="@style/Body" />
+                <TextView android:id="@+id/tvServer" style="@style/Body" />
+                <TextView android:id="@+id/tvViewers" style="@style/Body" />
+                <TextView android:id="@+id/tvBattery" style="@style/Body" />
+                <TextView android:id="@+id/tvEvents" style="@style/Body" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <Button android:id="@+id/btnToggle" style="@style/Btn" />
+                    <Button android:id="@+id/btnLock" style="@style/Btn" android:text="Kilitle ve arka plana al" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Erişim -->
+            <TextView style="@style/Section" android:text="Uzaktan erişim" />
+            <LinearLayout style="@style/Card">
+                <TextView android:id="@+id/tvAddresses" style="@style/Body" android:fontFamily="monospace" android:textIsSelectable="true" />
+                <TextView style="@style/Body" android:text="Kullanıcı adı: admin" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+                    <EditText
+                        android:id="@+id/etPassword"
+                        style="@style/Input"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:hint="Web şifresi (en az 6 karakter)"
+                        android:inputType="textPassword" />
+                    <Button android:id="@+id/btnShowPassword" style="@style/Btn" android:text="Göster" />
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <Button android:id="@+id/btnSavePassword" style="@style/Btn" android:text="Şifreyi kaydet" />
+                    <Button android:id="@+id/btnNewPassword" style="@style/Btn" android:text="Rastgele şifre üret" />
+                </LinearLayout>
+                <TextView
+                    style="@style/Hint"
+                    android:text="Bu adresi aynı Wi‑Fi'deki telefon/bilgisayarın tarayıcısında aç. Evin dışından izlemek için bu cihaza ve telefonuna Tailscale kur; Tailscale adresi de burada görünür." />
+            </LinearLayout>
+
+            <!-- Arka plan -->
+            <TextView style="@style/Section" android:text="Arka planda çalışma" />
+            <LinearLayout style="@style/Card">
+                <Switch android:id="@+id/swAutoStart" style="@style/Body" android:text="Cihaz açılınca otomatik başlat" />
+                <TextView android:id="@+id/tvOverlay" style="@style/Body" />
+                <Button android:id="@+id/btnOverlay" style="@style/Btn" android:text="Otomatik başlatma iznini ver" />
+                <TextView android:id="@+id/tvBatteryOpt" style="@style/Body" />
+                <Button android:id="@+id/btnBatteryOpt" style="@style/Btn" android:text="Pil kısıtlamasını kaldır" />
+                <Button android:id="@+id/btnRotate" style="@style/Btn" android:text="Görüntüyü 90° döndür" />
+                <TextView
+                    style="@style/Hint"
+                    android:text="Kamera, ekran kapalıyken veya başka uygulama kullanılırken de çalışır. Bildirim çubuğunda 'Ev Kamerası çalışıyor' bildirimi durduğu sürece kayıttadır. Görüntü gelmiyorsa kameranın üstündeki kapağı aç." />
+            </LinearLayout>
+
+            <!-- Hareket -->
+            <TextView style="@style/Section" android:text="Hareket algılama" />
+            <LinearLayout style="@style/Card">
+                <Switch android:id="@+id/swMotion" style="@style/Body" android:text="Hareket algılama" />
+                <TextView android:id="@+id/tvSensitivity" style="@style/Body" />
+                <SeekBar
+                    android:id="@+id/sbSensitivity"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="100" />
+                <Button android:id="@+id/btnDeleteEvents" style="@style/Btn" android:text="Hareket kayıtlarını sil" />
+                <TextView
+                    style="@style/Hint"
+                    android:text="Hareket olunca fotoğraf kaydedilir (en fazla 300) ve Telegram ayarlıysa telefonuna gönderilir. İki uyarı arasında en az 15 sn beklenir." />
+            </LinearLayout>
+
+            <!-- Telegram -->
+            <TextView style="@style/Section" android:text="Telegram bildirimi (isteğe bağlı)" />
+            <LinearLayout style="@style/Card">
+                <EditText android:id="@+id/etToken" style="@style/Input" android:hint="Bot token (BotFather'dan)" android:inputType="textPassword" />
+                <EditText android:id="@+id/etChat" style="@style/Input" android:hint="Chat ID" android:inputType="numberSigned" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <Button android:id="@+id/btnSaveTelegram" style="@style/Btn" android:text="Kaydet" />
+                    <Button android:id="@+id/btnTestTelegram" style="@style/Btn" android:text="Test fotoğrafı gönder" />
+                </LinearLayout>
+                <TextView android:id="@+id/tvTelegram" style="@style/Hint" />
+                <TextView
+                    style="@style/Hint"
+                    android:text="Hareket fotoğrafı, servis durduğunda, pil %20'nin altına indiğinde ve uygulama kilidinde yanlış şifre girildiğinde mesaj gelir." />
+            </LinearLayout>
+
+            <!-- Kilit -->
+            <TextView style="@style/Section" android:text="Uygulama kilidi" />
+            <LinearLayout style="@style/Card">
+                <TextView android:id="@+id/tvPin" style="@style/Body" />
+                <EditText
+                    android:id="@+id/etPin"
+                    style="@style/Input"
+                    android:hint="Şifre (4–8 rakam)"
+                    android:inputType="numberPassword"
+                    android:maxLength="8" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <Button android:id="@+id/btnSetPin" style="@style/Btn" android:text="Şifreyi kaydet" />
+                    <Button android:id="@+id/btnRemovePin" style="@style/Btn" android:text="Şifreyi kaldır" />
+                </LinearLayout>
+                <TextView
+                    style="@style/Hint"
+                    android:text="Şifre ayarlıysa bu ekranı açmak (ve kamerayı durdurmak) için şifre gerekir. Yanlış girişte kameradan fotoğraf çekilip kaydedilir ve Telegram'a gönderilir; 5 yanlışta 1 dk beklenir." />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Kilit ekranı -->
+    <LinearLayout
+        android:id="@+id/lockOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔒"
+            android:textSize="48sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Ev Kamerası kilitli"
+            android:textColor="@color/fg"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etUnlock"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center"
+            android:hint="Şifre"
+            android:importantForAutofill="no"
+            android:inputType="numberPassword"
+            android:maxLength="8"
+            android:textColor="@color/fg"
+            android:textColorHint="@color/muted"
+            android:textSize="24sp" />
+
+        <Button
+            android:id="@+id/btnUnlock"
+            android:layout_width="240dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Aç"
+            android:textAllCaps="false" />
+
+        <TextView
+            android:id="@+id/tvUnlock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="@color/bad" />
+    </LinearLayout>
+</FrameLayout>

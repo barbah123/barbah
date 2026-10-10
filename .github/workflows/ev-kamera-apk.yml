@@ -1,0 +1,58 @@
+name: Ev Kamerası .apk (Android)
+
+# Android uygulamasını derler ve sabit bir indirme bağlantısına koyar:
+# https://github.com/barbah123/barbah/releases/download/ev-kamera-android/EvKamera.apk
+
+on:
+  push:
+    paths:
+      - 'ev-kamera/android/**'
+      - '.github/workflows/ev-kamera-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ev-kamera/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: APK derle
+        run: |
+          gradle --no-daemon assembleRelease \
+            -PversionCode=${{ github.run_number }}
+          cp app/build/outputs/apk/release/app-release.apk EvKamera.apk
+          ls -lh EvKamera.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EvKamera-apk
+          path: ev-kamera/android/EvKamera.apk
+          retention-days: 90
+
+      - name: Sabit indirme bağlantısını güncelle
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ev-kamera-android
+          name: Ev Kamerası (Android) – son sürüm
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Android cihazda bu sayfadan **EvKamera.apk**'yı indirip kur.
+            Derleme: ${{ github.sha }} (#${{ github.run_number }})
+          files: ev-kamera/android/EvKamera.apk

@@ -6,6 +6,8 @@ görüntü doğrudan iPad'den senin tarayıcına akar.
 
 Bu proje repodaki diğer uygulamalardan bağımsızdır (`ev-kamera/`).
 
+> 🤖 **Android cihaz için** (arka planda, ekran kapalıyken de çalışan sürüm): [`android/README.md`](android/README.md)
+
 ## Özellikler
 
 - 🎥 Ön kameradan canlı görüntü (720p, ~8 kare/sn, MJPEG). Ek uygulama gerekmez; her tarayıcıda açılır

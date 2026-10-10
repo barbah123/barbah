@@ -161,8 +161,8 @@ class CameraService : Service() {
         )
         val address = NetworkInfo.addresses().firstOrNull()?.url ?: "Ağ bağlantısı yok"
         return Notification.Builder(this, Notifications.CHANNEL_SERVICE)
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("Ev Kamerası çalışıyor")
+            .setSmallIcon(R.drawable.ic_stat_robot)
+            .setContentTitle("AndroidConnector çalışıyor")
             .setContentText("${Hub.cameraStatus} • $address")
             .setContentIntent(open)
             .setOngoing(true)

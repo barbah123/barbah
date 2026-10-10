@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android robot başı (Android robotu CC BY 3.0 ile serbestçe kullanılabilir). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Antenler -->
+    <path
+        android:pathData="M42.5,44.5L36.5,35"
+        android:strokeWidth="2.8"
+        android:strokeColor="#FF3DDC84"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M65.5,44.5L71.5,35"
+        android:strokeWidth="2.8"
+        android:strokeColor="#FF3DDC84"
+        android:strokeLineCap="round" />
+    <!-- Baş -->
+    <path
+        android:fillColor="#FF3DDC84"
+        android:pathData="M30,66a24,24 0,0 1,48 0z" />
+    <!-- Gözler -->
+    <path
+        android:fillColor="#FF073042"
+        android:pathData="M43,55m-2.8,0a2.8,2.8 0,1 1,5.6 0a2.8,2.8 0,1 1,-5.6 0" />
+    <path
+        android:fillColor="#FF073042"
+        android:pathData="M65,55m-2.8,0a2.8,2.8 0,1 1,5.6 0a2.8,2.8 0,1 1,-5.6 0" />
+</vector>

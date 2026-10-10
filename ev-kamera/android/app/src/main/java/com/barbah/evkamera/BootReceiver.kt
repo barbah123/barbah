@@ -46,8 +46,8 @@ object Launcher {
             context, 1, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = Notification.Builder(context, Notifications.CHANNEL_ALERT)
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .setContentTitle("Ev Kamerası durdu")
+            .setSmallIcon(R.drawable.ic_stat_robot)
+            .setContentTitle("AndroidConnector durdu")
             .setContentText(reason)
             .setContentIntent(pending)
             .setAutoCancel(true)

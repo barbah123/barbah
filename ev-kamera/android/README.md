@@ -4,6 +4,9 @@ Android 8+ cihazları (tablet, telefon, stantlı dokunmatik ekran / "StanbyME" t
 güvenlik kamerasına çeviren, **arka planda çalışan** uygulama. iPad sürümüyle aynı web
 izleme sayfasını kullanır (`../README.md`).
 
+Cihazda **AndroidConnector** adıyla ve Android robotu simgesiyle görünür (bildirim de bu adla
+çıkar). Paket kimliği `com.barbah.evkamera` olarak kaldı; eski sürümün üstüne güncelleme olarak kurulur.
+
 ## iPad sürümünden farkı: gerçekten arka planda çalışır
 
 Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalışmasına izin verir:
@@ -12,7 +15,7 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
 - ✅ Cihazda başka uygulama (YouTube, Netflix, tarayıcı) kullanılırken çalışır
 - ✅ Cihaz yeniden açılınca kendiliğinden başlar
 - ✅ Kamera başka bir uygulamaya geçerse (görüntülü arama vb.) serbest kalınca geri bağlanır
-- ℹ️ Bildirim çubuğunda **"Ev Kamerası çalışıyor"** bildirimi ve ekranın köşesinde Android'in
+- ℹ️ Bildirim çubuğunda **"AndroidConnector çalışıyor"** bildirimi ve ekranın köşesinde Android'in
   yeşil kamera noktası görünür. Bunları Android zorunlu tutar, gizlenemez.
 
 ## Kurulum
@@ -22,9 +25,9 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
 2. İndirme bitince dosyaya dokun. Android "bilinmeyen uygulamalar" uyarısı verirse
    **Ayarlar** → **Bu kaynaktan izin ver** de, geri dön, **Yükle**.
    ("Play Protect" uyarısında **Yine de yükle** de. Uygulama mağaza dışı olduğu için uyarır.)
-3. **Ev Kamerası**'nı aç → **Kamera** ve **Bildirim** izinlerine **İzin ver**.
+3. **AndroidConnector**'ı aç → **Kamera** ve **Bildirim** izinlerine **İzin ver**.
 4. Ayarlar ekranındaki iki düğmeye bas:
-   - **Otomatik başlatma iznini ver** → listede Ev Kamerası → **İzin ver**
+   - **Otomatik başlatma iznini ver** → listede AndroidConnector → **İzin ver**
      (Android buna "Diğer uygulamaların üzerinde göster" der. Cihaz açılınca kameranın
      kendiliğinden başlaması için gerekli.)
    - **Pil kısıtlamasını kaldır** → **İzin ver** (Android'in servisi kapatmasını engeller.)
@@ -50,7 +53,7 @@ Güncelleme: aynı bağlantıdan yeni APK'yı indirip kur. Ayarlar ve kayıtlar 
 | "Kamera başka bir uygulamada" | Görüntülü arama vb. bitince kendiliğinden döner |
 | Görüntü yan / ters | **Görüntüyü 90° döndür**'e doğru olana kadar bas |
 | Cihaz açılınca başlamadı | Otomatik başlatma izni verilmemiş olabilir: bildirime dokun veya uygulamayı bir kez aç |
-| Bir süre sonra duruyor | **Pil kısıtlamasını kaldır**. Cihazın kendi "uygulama uyutma / RAM temizleme" ayarı varsa Ev Kamerası'nı muaf tut |
+| Bir süre sonra duruyor | **Pil kısıtlamasını kaldır**. Cihazın kendi "uygulama uyutma / RAM temizleme" ayarı varsa Ev Kamerası'nı muaf tut (listede AndroidConnector adıyla görünür) |
 | Telefonda sayfa açılmıyor | Aynı Wi‑Fi'de mi? Cihazda bildirim duruyor mu? Adres değiştiyse modemden sabit IP ver |
 
 ## Derleme

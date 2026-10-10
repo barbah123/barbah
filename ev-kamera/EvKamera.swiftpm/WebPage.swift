@@ -7,6 +7,8 @@ enum WebPage {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b0d10">
 <title>Ev Kamerası</title>
 <style>
@@ -22,6 +24,14 @@ main{max-width:1100px;margin:0 auto;padding:0 16px 40px}
 .view img{width:100%;height:100%;object-fit:contain;display:block}
 .view .msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--mut);text-align:center;padding:16px}
 .view.stale .msg{display:flex;background:rgba(0,0,0,.6)}
+.fsbtn{position:absolute;top:10px;right:10px;width:40px;height:40px;padding:0;border-radius:10px;border:0;background:rgba(0,0,0,.45);color:#fff;font-size:20px;line-height:40px;text-align:center;cursor:pointer;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.fsbtn:hover{border:0}
+.view .live{position:absolute;left:12px;top:12px;font-size:12px;padding:3px 9px;border-radius:99px;background:rgba(0,0,0,.45);color:#fff;display:none}
+/* Tam ekran: iPhone Safari'de img için gerçek tam ekran olmadığından CSS ile ekranı kaplar. */
+.view.full{position:fixed;inset:0;z-index:50;width:100vw;height:100vh;height:100dvh;aspect-ratio:auto;border-radius:0;border:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.view.full .fsbtn{top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right))}
+.view.full .live{display:block;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left))}
+body.full{overflow:hidden}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 button,.btn{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;padding:9px 14px;border-radius:10px;cursor:pointer;text-decoration:none}
 button:hover,.btn:hover{border-color:var(--acc)}
@@ -43,6 +53,8 @@ h2{font-size:14px;margin:26px 0 10px;color:var(--mut);font-weight:600;text-trans
 <main>
   <div id="view" class="view">
     <img id="cam" alt="Canlı görüntü">
+    <span class="live" id="live">● Canlı</span>
+    <button class="fsbtn" id="fs" title="Tam ekran" aria-label="Tam ekran">⛶</button>
     <div class="msg" id="msg">Kamera şu an görüntü göndermiyor.<br>iPad'de uygulama ön planda mı?</div>
   </div>
   <div class="bar">
@@ -71,6 +83,36 @@ $('pause').onclick = e => {
   if (paused) { cam.src = '/snapshot.jpg?t=' + Date.now(); e.target.textContent = 'Devam et'; }
   else { connect(); e.target.textContent = 'Duraklat'; }
 };
+// Tam ekran: önce tarayıcının gerçek tam ekranını dene (Android, bilgisayar, iPad),
+// olmazsa (iPhone) CSS ile ekranı kapla. Görüntüye dokunmak da açıp kapatır.
+const view = $('view');
+const fsApi = view.requestFullscreen || view.webkitRequestFullscreen;
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+function setFull(on) {
+  view.classList.toggle('full', on);
+  document.body.classList.toggle('full', on);
+  $('fs').textContent = on ? '✕' : '⛶';
+  $('fs').title = on ? 'Tam ekrandan çık' : 'Tam ekran';
+}
+function enterFull() {
+  setFull(true);
+  if (fsApi && !fsElement()) {
+    Promise.resolve(fsApi.call(view)).then(() => {
+      if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    }).catch(() => {});
+  }
+}
+function exitFull() {
+  setFull(false);
+  if (fsElement()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+}
+const toggleFull = () => view.classList.contains('full') ? exitFull() : enterFull();
+$('fs').onclick = e => { e.stopPropagation(); toggleFull(); };
+cam.addEventListener('click', toggleFull);
+document.addEventListener('fullscreenchange', () => { if (!fsElement()) setFull(false); });
+document.addEventListener('webkitfullscreenchange', () => { if (!fsElement()) setFull(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && view.classList.contains('full')) exitFull(); });
+
 // Sekme arka plandayken veri harcamasın.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) disconnect(); else if (!paused) connect();
@@ -84,6 +126,8 @@ async function status() {
     $('st').textContent = live ? '● Canlı' : '● Kamera durdu';
     $('st').className = 'pill ' + (live ? 'ok' : 'bad');
     $('view').classList.toggle('stale', !live);
+    $('live').textContent = live ? '● Canlı' : '● Kamera durdu';
+    $('live').style.color = live ? '#3ecf8e' : '#ff5d5d';
     if (s.battery !== undefined) {
       $('bat').hidden = false;
       $('bat').textContent = '🔋 %' + s.battery + (s.charging ? ' ⚡' : '');

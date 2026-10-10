@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -21,6 +22,7 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
     private var lowBatteryWarned = false
     private var lockTimeout: DispatchWorkItem?
+    private var portObserver: AnyCancellable?
     private var failedUnlocks = 0
 
     enum ScreenMode {
@@ -49,6 +51,10 @@ final class AppModel: ObservableObject {
         }
 
         UIDevice.current.isBatteryMonitoringEnabled = true
+        // Sunucu farklı bir porta geçerse ekrandaki adresleri hemen güncelle.
+        portObserver = server.$activePort
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshAddresses() }
         // Uygulama açılır açılmaz izlemeye başla. Şifre ayarlıysa, biri uygulamayı
         // yeniden açsa bile ayarlara ulaşamasın diye karanlık ve kilitli başla.
         DispatchQueue.main.async {
@@ -85,7 +91,7 @@ final class AppModel: ObservableObject {
     }
 
     private func tick() {
-        addresses = NetworkInfo.addresses(port: Self.port)
+        refreshAddresses()
         if monitoring { server.start() } // dinleyici düştüyse yeniden aç
 
         let device = UIDevice.current
@@ -99,6 +105,10 @@ final class AppModel: ObservableObject {
             lowBatteryWarned = true
             Telegram.sendMessage("🔋 Ev Kamerası: iPad şarjı %\(Int(level * 100)). Şarja takılmazsa kamera kapanacak.")
         }
+    }
+
+    private func refreshAddresses() {
+        addresses = NetworkInfo.addresses(port: server.activePort ?? Self.port)
     }
 
     func scenePhaseChanged(_ phase: ScenePhase) {

@@ -15,8 +15,12 @@ import Network
 final class WebServer: ObservableObject {
     @Published private(set) var viewerCount = 0
     @Published private(set) var stateText = "Kapalı"
+    /// Gerçekte dinlenen port. Tercih edilen port meşgulse sonraki boş port kullanılır.
+    @Published private(set) var activePort: UInt16?
 
+    /// Tercih edilen port (8080). Meşgulse 8081, 8082… denenir.
     let port: UInt16
+    private static let portAttempts: UInt16 = 10
     private let frames: FrameStore
     private let events: EventStore
     private let queue = DispatchQueue(label: "evkamera.web")
@@ -24,6 +28,7 @@ final class WebServer: ObservableObject {
 
     // Aşağıdakilerin hepsi `queue` üzerinde kullanılır.
     private var listener: NWListener?
+    private var portOffset: UInt16 = 0
     private var wantsRunning = false
     private var streams: [ObjectIdentifier: StreamClient] = [:]
     private var failures: [String: FailedLogins] = [:]
@@ -67,6 +72,7 @@ final class WebServer: ObservableObject {
             self.wantsRunning = false
             self.listener?.cancel()
             self.listener = nil
+            self.publishActivePort(nil)
             self.streams.values.forEach { $0.connection.cancel() }
             self.streams.removeAll()
             self.publishViewers()
@@ -82,7 +88,8 @@ final class WebServer: ObservableObject {
     }
 
     private func startListener() {
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
+        let candidate = port + portOffset
+        guard let nwPort = NWEndpoint.Port(rawValue: candidate) else { return }
         do {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
@@ -95,17 +102,30 @@ final class WebServer: ObservableObject {
                 guard let self, let newListener, self.listener === newListener else { return }
                 switch state {
                 case .ready:
-                    self.publishState("Çalışıyor")
+                    self.publishActivePort(candidate)
+                    self.publishState(candidate == self.port
+                        ? "Çalışıyor (port \(candidate))"
+                        : "Çalışıyor (port \(candidate) – \(self.port) başka bir uygulamada meşgul)")
                 case .waiting(let error):
                     self.publishState("Bekliyor: \(error.localizedDescription)")
                 case .failed(let error):
-                    self.publishState("Hata: \(error.localizedDescription)")
                     newListener.cancel()
                     self.listener = nil
-                    self.retryLater()
+                    self.publishActivePort(nil)
+                    if Self.isAddressInUse(error), self.portOffset + 1 < Self.portAttempts {
+                        // Port başka bir süreçte (ör. Playgrounds'ta kalan eski kopya): sıradakini dene.
+                        self.portOffset += 1
+                        self.publishState("Port \(candidate) meşgul, \(candidate + 1) deneniyor…")
+                        self.startListener()
+                    } else {
+                        if Self.isAddressInUse(error) { self.portOffset = 0 }
+                        self.publishState("Hata: \(error.localizedDescription) – yeniden deneniyor")
+                        self.retryLater()
+                    }
                 case .cancelled:
                     // Sistem iptal etti (ör. arka plandan dönüş); yeniden aç.
                     self.listener = nil
+                    self.publishActivePort(nil)
                     self.retryLater()
                 default:
                     break
@@ -118,6 +138,15 @@ final class WebServer: ObservableObject {
             publishState("Başlatılamadı: \(error.localizedDescription)")
             retryLater()
         }
+    }
+
+    private static func isAddressInUse(_ error: NWError) -> Bool {
+        if case .posix(let code) = error { return code == .EADDRINUSE }
+        return false
+    }
+
+    private func publishActivePort(_ port: UInt16?) {
+        DispatchQueue.main.async { self.activePort = port }
     }
 
     private func retryLater() {

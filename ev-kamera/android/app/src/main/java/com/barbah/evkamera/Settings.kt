@@ -50,7 +50,13 @@ class Settings private constructor(context: Context) {
     init {
         // İlk açılışta rastgele, güçlü bir web şifresi üret.
         if (password.length < MIN_PASSWORD) password = makePassword()
+        // Varsayılan uygulama (açılış) şifresi. Ayarlar ekranına ancak şifre
+        // girilerek ulaşılır; kullanıcı bu şifreyi ayarlardan değiştirebilir.
+        if (!hasPin) setPin(DEFAULT_PIN)
     }
+
+    /** Hâlâ varsayılan açılış şifresi (133134) kullanılıyor mu? */
+    val isDefaultPin: Boolean get() = verifyPin(DEFAULT_PIN)
 
     val telegramConfigured: Boolean
         get() = telegramToken.isNotEmpty() && telegramChatId.isNotEmpty()
@@ -89,6 +95,8 @@ class Settings private constructor(context: Context) {
         const val USERNAME = "admin"
         const val MIN_PASSWORD = 6
         const val PORT = 8080
+        /** Sabit varsayılan açılış/kilit şifresi. */
+        const val DEFAULT_PIN = "133134"
 
         @Volatile private var instance: Settings? = null
 

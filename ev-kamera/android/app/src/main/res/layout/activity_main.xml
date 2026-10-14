@@ -148,25 +148,25 @@
             </LinearLayout>
 
             <!-- Kilit -->
-            <TextView style="@style/Section" android:text="Uygulama kilidi" />
+            <TextView style="@style/Section" android:text="Açılış şifresi" />
             <LinearLayout style="@style/Card">
                 <TextView android:id="@+id/tvPin" style="@style/Body" />
                 <EditText
                     android:id="@+id/etPin"
                     style="@style/Input"
-                    android:hint="Şifre (4–8 rakam)"
+                    android:hint="Yeni şifre (4–8 rakam)"
                     android:inputType="numberPassword"
                     android:maxLength="8" />
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal">
-                    <Button android:id="@+id/btnSetPin" style="@style/Btn" android:text="Şifreyi kaydet" />
-                    <Button android:id="@+id/btnRemovePin" style="@style/Btn" android:text="Şifreyi kaldır" />
+                    <Button android:id="@+id/btnSetPin" style="@style/Btn" android:text="Şifreyi değiştir" />
+                    <Button android:id="@+id/btnRemovePin" style="@style/Btn" android:text="Varsayılana dön" />
                 </LinearLayout>
                 <TextView
                     style="@style/Hint"
-                    android:text="Şifre ayarlıysa bu ekranı açmak (ve kamerayı durdurmak) için şifre gerekir. Yanlış girişte kameradan fotoğraf çekilip kaydedilir ve Telegram'a gönderilir; 5 yanlışta 1 dk beklenir." />
+                    android:text="Bu ekranı açmak (ve kamerayı durdurmak) için her zaman şifre gerekir. Varsayılan şifre 133134'tür; buradan değiştirebilirsin. Yanlış girişte kameradan fotoğraf çekilip kaydedilir ve Telegram'a gönderilir; 5 yanlışta 1 dk beklenir." />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

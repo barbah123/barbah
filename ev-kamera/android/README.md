@@ -13,10 +13,22 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
 
 - ✅ Ekran kapalıyken (uyku modunda) çalışır
 - ✅ Cihazda başka uygulama (YouTube, Netflix, tarayıcı) kullanılırken çalışır
-- ✅ Cihaz yeniden açılınca kendiliğinden başlar
+- ✅ Cihaz yeniden açılınca **doğrudan arka planda** başlar; uygulama ön yüze gelmez
+  (bunun için "otomatik başlatma / overlay" izni gerekir; verilmemişse ön yüze gelmeden
+  dokunulacak bir bildirim çıkar)
 - ✅ Kamera başka bir uygulamaya geçerse (görüntülü arama vb.) serbest kalınca geri bağlanır
 - ℹ️ Bildirim çubuğunda **"AndroidConnector çalışıyor"** bildirimi ve ekranın köşesinde Android'in
   yeşil kamera noktası görünür. Bunları Android zorunlu tutar, gizlenemez.
+
+### Açılış ekranı ve şifre
+
+- Uygulama açıldığında kısa bir **AndroidConnector açılış ekranı** görünür.
+- Ardından **şifre** istenir. **Standart (varsayılan) açılış şifresi: `133134`**. Şifre girilmeden
+  kamera ayarları ekranına girilemez ve kamera durdurulamaz.
+- Şifreyi **Açılış şifresi** bölümünden değiştirebilirsin. Varsayılan şifre kullanıldığı sürece
+  uyarı gösterilir; değiştirmen önerilir. "Varsayılana dön" ile tekrar `133134` yapılır.
+- Yanlış şifrede ön kameradan fotoğraf çekilip kaydedilir ve (ayarlıysa) Telegram'a gönderilir;
+  5 yanlış denemede 1 dakika beklenir.
 
 ## Kurulum
 

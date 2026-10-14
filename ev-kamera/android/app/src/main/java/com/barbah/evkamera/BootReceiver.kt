@@ -19,7 +19,15 @@ class BootReceiver : BroadcastReceiver() {
         val settings = Settings.get(context)
         if (!settings.autoStart || !settings.wantsRunning) return
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
-        Launcher.bringUp(context, reason = "Kamerayı başlatmak için dokun")
+        // Kamerayı doğrudan arka planda başlat; uygulama ön yüze gelmez.
+        // "Diğer uygulamaların üzerinde göster" (overlay) izni verilmişse kamera-türü
+        // ön plan servisi arka planda açılabilir. Verilmemişse servis başlatılamaz;
+        // bu durumda dokunulacak bir bildirim gösterilir (yine ön yüze gelmeden).
+        try {
+            CameraService.start(context)
+        } catch (e: Exception) {
+            Launcher.bringUp(context, reason = "Kamerayı başlatmak için dokun")
+        }
     }
 }
 

@@ -278,8 +278,9 @@ class MainActivity : Activity() {
             }
         }
         findViewById<Button>(R.id.btnRemovePin).setOnClickListener {
-            settings.removePin()
-            toast("Uygulama kilidi kaldırıldı")
+            // Kilit tamamen kaldırılamaz; varsayılan açılış şifresine (133134) döner.
+            settings.setPin(Settings.DEFAULT_PIN)
+            toast("Varsayılan açılış şifresine (133134) dönüldü")
             refreshControls()
         }
     }
@@ -292,9 +293,16 @@ class MainActivity : Activity() {
         updateSensitivityLabel()
         findViewById<EditText>(R.id.etToken).apply { if (!hasFocus()) setText(settings.telegramToken) }
         findViewById<EditText>(R.id.etChat).apply { if (!hasFocus()) setText(settings.telegramChatId) }
-        findViewById<TextView>(R.id.tvPin).text =
-            if (settings.hasPin) "Uygulama kilidi: açık ✓" else "Uygulama kilidi: kapalı"
-        findViewById<Button>(R.id.btnRemovePin).visibility = if (settings.hasPin) View.VISIBLE else View.GONE
+        val tvPin = findViewById<TextView>(R.id.tvPin)
+        if (settings.isDefaultPin) {
+            tvPin.text = "Açılış şifresi: varsayılan (133134) — değiştirmen önerilir"
+            tvPin.setTextColor(getColor(R.color.bad))
+        } else {
+            tvPin.text = "Açılış şifresi: değiştirildi ✓"
+            tvPin.setTextColor(getColor(R.color.ok))
+        }
+        findViewById<Button>(R.id.btnRemovePin).visibility =
+            if (settings.isDefaultPin) View.GONE else View.VISIBLE
 
         val overlay = android.provider.Settings.canDrawOverlays(this)
         findViewById<TextView>(R.id.tvOverlay).text =

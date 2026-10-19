@@ -976,7 +976,14 @@ async function scanEpisodicPivots(
 
     const or = ctx.orHigh != null && ctx.orLow != null ? { high: ctx.orHigh, low: ctx.orLow } : null;
     const entry = or ? or.high : r.price;
-    const stop = or ? or.low : r.price * (1 - Math.max(0.04, adr / 100));
+    // Yapısal stop: açılış aralığının dibi. Ama açılış aralığı dejenere
+    // olabilir (19 Eki: SLN giriş 19.585 / stop 19.58 → risk %0,03; boyut
+    // satırı hesabın %1959'unu önerdi). Stop girişe yarım ADR'den yakınsa
+    // ORB bir stop seviyesi değildir; mesafe ADR'den türetilir.
+    const fallbackStop = (base: number) => base * (1 - Math.max(0.04, adr / 100));
+    const minRisk = Math.max(0.005, (adr * 0.5) / 100);
+    const orStop = or && or.low < entry * (1 - minRisk) ? or.low : null;
+    const stop = orStop ?? fallbackStop(entry);
     const riskPct = ((entry - stop) / entry) * 100;
     const target = entry * (1 + (Math.max(adr, 5) * 3) / 100);
 
@@ -1014,7 +1021,8 @@ async function scanEpisodicPivots(
       ` | ADR %${adr.toFixed(1)}\n` +
       (catalyst ? `${catalyst}\n` : '') +
       `📥 Giriş: açılış aralığı tepesi ${usd(entry)} kırılışı${or ? '' : ' (ORB verisi yok, anlık fiyat)'}\n` +
-      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — açılış aralığının dibi\n` +
+      `🛑 Stop ${usd(stop)} (%${riskPct.toFixed(2)}) — ` +
+      `${orStop ? 'açılış aralığının dibi' : 'ADR mesafesi (açılış aralığı stop için çok sıkı)'}\n` +
       `🎯 İlk hedef ≈ ${usd(target)}; gücü sürerse 10/20 EMA ile günlerce taşı\n` +
       sizingLine(riskPct) +
       lateNote;

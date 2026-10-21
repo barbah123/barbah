@@ -876,6 +876,14 @@ async function checkTriggers(
     // manuel koşu anlamsız risk taşıyan sinyal üretir.
     const maxShortRisk = Math.min(0.3, Math.max(0.05, (adr * 2.5) / 100));
     if (stop > entry * (1 + maxShortRisk)) continue;
+    // RİSK TABANI: stop tepenin hemen üstündeyse henüz dönüş yok — fiyat
+    // günün tepesine yapışıkken "ilk kırmızı gün" shortu diye bir şey olmaz.
+    // 21 Eki BMBL: giriş 5.935 / stop 5.95 → risk %0,25, boyut satırı hesabın
+    // %198'ini önerdi. EP tarafında stop genişletiliyor (kırılış girişi yine
+    // geçerli), burada ADAY ATLANIR: short'ta uydurma stop olmaz ve giriş
+    // zaten erken. Sembol izlemede kalır, gün içinde düşerse yeniden bakılır.
+    const minShortRisk = Math.min(0.03, Math.max(0.01, (adr * 0.5) / 100));
+    if (stop < entry * (1 + minShortRisk)) continue;
     const stopRef = l.dayHigh != null && stop === l.dayHigh ? 'bugünün tepesi' : 'dünün tepesi';
     const riskPct = ((stop - entry) / entry) * 100;
     const target = w.ma_level && w.ma_level < entry ? w.ma_level : entry * 0.7;

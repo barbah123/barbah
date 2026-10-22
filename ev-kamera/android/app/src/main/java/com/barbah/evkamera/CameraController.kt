@@ -55,13 +55,37 @@ class CameraController(
     private var warmupUntil = 0L
     private var previousGrid: IntArray? = null
 
-    private val retry = Runnable { if (wanted && device == null) open() }
+    /** Bir açma isteği sürüyor mu (openCamera çağrıldı, cevap gelmedi). */
+    private var opening = false
+    /** Her açma/kapama denemesinde artar; eski denemelerden gelen geç cevaplar yok sayılır. */
+    private var generation = 0
+    /** Oturumun kurulduğu an; bekçi buna göre "görüntü gelmiyor" kararı verir. */
+    private var sessionStartedAt = 0L
+
+    private val retry = Runnable { if (wanted && device == null && !opening) open() }
+
+    /** Kamera açık göründüğü halde uzun süre kare gelmezse kapatıp yeniden açar. */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (wanted && device != null && session != null) {
+                val now = SystemClock.elapsedRealtime()
+                val lastFrameAge = System.currentTimeMillis() - Hub.frames.lastFrameTime
+                if (now - sessionStartedAt > STALL_MS && lastFrameAge > STALL_MS) {
+                    Log.w(TAG, "no frames for ${lastFrameAge}ms, reopening camera")
+                    status("Görüntü gelmiyor – kamera yeniden açılıyor")
+                    closeCamera()
+                    scheduleRetry(1_000)
+                }
+            }
+            handler.postDelayed(this, 5_000)
+        }
+    }
 
     private val availability = object : CameraManager.AvailabilityCallback() {
         override fun onCameraAvailable(id: String) {
-            if (wanted && device == null && (cameraId == null || id == cameraId)) {
+            if (wanted && device == null && !opening && (cameraId == null || id == cameraId)) {
                 handler.removeCallbacks(retry)
-                handler.postDelayed(retry, 500)
+                handler.postDelayed(retry, 1_000)
             }
         }
     }
@@ -70,12 +94,15 @@ class CameraController(
         if (wanted) return@post
         wanted = true
         manager.registerAvailabilityCallback(availability, handler)
+        handler.removeCallbacks(watchdog)
+        handler.postDelayed(watchdog, 5_000)
         open()
     }
 
     fun stop() = handler.post {
         wanted = false
         handler.removeCallbacks(retry)
+        handler.removeCallbacks(watchdog)
         manager.unregisterAvailabilityCallback(availability)
         closeCamera()
         status("Durdu")
@@ -107,7 +134,7 @@ class CameraController(
 
     @SuppressLint("MissingPermission")
     private fun open() {
-        if (!wanted || device != null) return
+        if (!wanted || device != null || opening) return
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             status("Kamera izni yok")
             return
@@ -126,52 +153,72 @@ class CameraController(
             val size = pickSize(sizes)
             val fps = pickFpsRange(chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES))
 
-            reader?.close()
+            closeCamera() // önceki denemeden kalan her şeyi bırak
+            val gen = generation
             reader = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 3).apply {
                 setOnImageAvailableListener({ onImage(it) }, handler)
             }
             status("Açılıyor…")
+            opening = true
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!wanted) {
+                    if (gen != generation || !wanted) {
+                        // Bu cevap eski bir denemeye ait; kamerayı hemen bırak.
                         camera.close()
                         return
                     }
+                    opening = false
                     device = camera
                     startSession(camera, fps)
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
                     camera.close()
-                    if (device === camera) device = null
-                    session = null
+                    if (gen != generation) return
+                    closeCamera()
                     status("Kamera başka bir uygulamada – bekleniyor")
                     scheduleRetry(10_000)
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     camera.close()
-                    if (device === camera) device = null
-                    session = null
-                    status("Kamera hatası ($error) – yeniden denenecek")
+                    if (gen != generation) return
+                    closeCamera()
+                    status(errorText(error))
                     if (error == ERROR_CAMERA_DISABLED) onBlocked()
-                    scheduleRetry(10_000)
+                    scheduleRetry(if (error == ERROR_CAMERA_IN_USE || error == ERROR_MAX_CAMERAS_IN_USE) 15_000 else 5_000)
                 }
             }, handler)
         } catch (e: CameraAccessException) {
+            closeCamera()
             status("Kamera açılamadı: ${e.reason}")
             if (e.reason == CameraAccessException.CAMERA_DISABLED) onBlocked()
             scheduleRetry(10_000)
         } catch (e: SecurityException) {
             // Arka planda başlatılan servis kamerayı kullanamaz; uygulamanın bir an öne gelmesi gerekir.
+            closeCamera()
             status("Android kamerayı engelledi – uygulamayı bir kez aç")
             onBlocked()
             scheduleRetry(30_000)
         } catch (e: Exception) {
             Log.w(TAG, "open", e)
+            closeCamera()
             status("Kamera açılamadı: ${e.message}")
             scheduleRetry(10_000)
         }
+    }
+
+    private fun errorText(error: Int): String = when (error) {
+        CameraDevice.StateCallback.ERROR_CAMERA_IN_USE,
+        CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ->
+            "Kamera başka bir uygulamada kullanılıyor – bekleniyor"
+        CameraDevice.StateCallback.ERROR_CAMERA_DISABLED ->
+            "Android kamerayı engelledi – uygulamayı bir kez aç"
+        CameraDevice.StateCallback.ERROR_CAMERA_DEVICE ->
+            "Kamera donanım hatası – yeniden açılıyor"
+        CameraDevice.StateCallback.ERROR_CAMERA_SERVICE ->
+            "Kamera servisi hatası – yeniden açılıyor"
+        else -> "Kamera hatası ($error) – yeniden denenecek"
     }
 
     @Suppress("DEPRECATION") // createCaptureSession(List<Surface>, …) API 26'da tek seçenek.
@@ -189,6 +236,7 @@ class CameraController(
                     }
                     try {
                         s.setRepeatingRequest(request.build(), null, handler)
+                        sessionStartedAt = SystemClock.elapsedRealtime()
                         previousGrid = null
                         warmupUntil = SystemClock.elapsedRealtime() + 3_000 // pozlama otursun
                         status("Çalışıyor")
@@ -213,6 +261,8 @@ class CameraController(
     }
 
     private fun closeCamera() {
+        generation++ // bekleyen açma isteğinin geç cevabı yok sayılsın
+        opening = false
         runCatching { session?.close() }
         runCatching { device?.close() }
         runCatching { reader?.close() }
@@ -367,5 +417,7 @@ class CameraController(
         private const val STREAM_FPS = 8
         private const val JPEG_QUALITY = 60
         private const val MOTION_COOLDOWN_MS = 15_000L
+        /** Bu kadar süre kare gelmezse kamera yeniden açılır. */
+        private const val STALL_MS = 20_000L
     }
 }

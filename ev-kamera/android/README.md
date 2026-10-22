@@ -36,6 +36,11 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
 - İzleme sayfasındaki **Döndür ⟳** düğmesiyle görüntüyü telefondan/bilgisayardan da çevirebilirsin
   (cihaza gitmeden).
 
+### Telegram'a adres bildirimi
+
+Telegram ayarlıysa cihaz her açıldığında (ve ev ağındaki IP adresi değiştiğinde) güncel izleme
+adresleri Telegram'a mesaj olarak gelir. Telegram'ı yeni ayarladıysan ilk mesaj 30 saniye içinde gelir.
+
 ## Kurulum
 
 1. Cihazda tarayıcıyı (Chrome) aç, GitHub'a giriş yap ve şu adresi aç:

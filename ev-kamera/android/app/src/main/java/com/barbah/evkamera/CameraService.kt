@@ -35,9 +35,14 @@ class CameraService : Service() {
     private var lowBatteryWarned = false
     private var lastBlockedLaunch = 0L
 
+    /** Telegram'a en son başarıyla bildirilen adresler (açılışta ve değişince yeniden gönderilir). */
+    @Volatile private var announcedAddresses: String? = null
+    @Volatile private var announcing = false
+
     private val tick = object : Runnable {
         override fun run() {
             updateBattery()
+            announceAddresses()
             updateNotification()
             server.start() // dinleyici düştüyse yeniden aç
             main.postDelayed(this, 30_000)
@@ -91,6 +96,8 @@ class CameraService : Service() {
             camera.start()
             server.start()
             main.post(tick)
+            // Açılışta ağ birkaç saniye geç gelebilir; adresi erken bir kez daha dene.
+            main.postDelayed({ announceAddresses() }, 10_000)
         } else {
             // Servis yeniden tetiklendi (ör. görünmez başlatıcı uygulamayı ekrandayken
             // başlattı ve Android kamera iznini verdi): beklemeden kamerayı açmayı dene.
@@ -134,6 +141,26 @@ class CameraService : Service() {
     private fun releaseLocks() {
         runCatching { wakeLock?.release() }
         runCatching { wifiLock?.release() }
+    }
+
+    // --- Telegram'a adres bildirimi ---
+
+    /**
+     * Cihaz açıldığında ve ağ adresi değiştiğinde güncel izleme adreslerini Telegram'a yollar.
+     * Gönderim başarısız olursa (ağ henüz hazır değil vb.) bir sonraki turda yeniden dener.
+     */
+    private fun announceAddresses() {
+        if (announcing || !Settings.get(this).telegramConfigured) return
+        val addresses = NetworkInfo.addresses()
+        if (addresses.isEmpty()) return
+        val key = addresses.joinToString(" ") { it.url }
+        if (key == announcedAddresses) return
+        announcing = true
+        val text = NetworkInfo.announcement(addresses, firstSinceStart = announcedAddresses == null)
+        Telegram.sendMessage(this, text) { error ->
+            if (error == null) announcedAddresses = key
+            announcing = false
+        }
     }
 
     // --- Pil ---

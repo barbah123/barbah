@@ -29,6 +29,14 @@ object NetworkInfo {
         return result.sortedBy { it.label }
     }
 
+    /** Telegram'a gönderilecek "adresler" mesajı. */
+    fun announcement(addresses: List<ServerAddress>, firstSinceStart: Boolean): String {
+        val time = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale("tr")).format(java.util.Date())
+        val title = if (firstSinceStart) "📡 Ev Kamerası açıldı ($time)" else "🔄 Ev Kamerası adresi değişti ($time)"
+        val lines = addresses.joinToString("\n") { "• ${it.label}: ${it.url}" }
+        return "$title\n\n$lines\n\nKullanıcı adı: ${Settings.USERNAME} (şifre: uygulamadaki web şifresi)"
+    }
+
     /** Tailscale adresleri 100.64.0.0/10 aralığındadır. */
     private fun isTailscale(ip: String): Boolean {
         val parts = ip.split('.').mapNotNull { it.toIntOrNull() }

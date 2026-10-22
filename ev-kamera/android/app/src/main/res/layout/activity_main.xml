@@ -144,7 +144,7 @@
                 <TextView android:id="@+id/tvTelegram" style="@style/Hint" />
                 <TextView
                     style="@style/Hint"
-                    android:text="Hareket fotoğrafı, servis durduğunda, pil %20'nin altına indiğinde ve uygulama kilidinde yanlış şifre girildiğinde mesaj gelir." />
+                    android:text="Cihaz her açıldığında ve adres değiştiğinde izleme adresleri gönderilir. Ayrıca hareket fotoğrafı, servis durduğunda, pil %20'nin altına indiğinde ve uygulama kilidinde yanlış şifre girildiğinde mesaj gelir." />
             </LinearLayout>
 
             <!-- Kilit -->

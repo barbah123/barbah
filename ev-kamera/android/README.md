@@ -13,9 +13,11 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
 
 - ✅ Ekran kapalıyken (uyku modunda) çalışır
 - ✅ Cihazda başka uygulama (YouTube, Netflix, tarayıcı) kullanılırken çalışır
-- ✅ Cihaz yeniden açılınca **doğrudan arka planda** başlar; uygulama ön yüze gelmez
-  (bunun için "otomatik başlatma / overlay" izni gerekir; verilmemişse ön yüze gelmeden
-  dokunulacak bir bildirim çıkar)
+- ✅ Cihaz yeniden açılınca **arka planda** başlar; uygulama ön yüze gelmez. Android 11+
+  kamerayı yalnızca ekrandayken başlatılan servise verdiği için, saniyenin çok küçük bir
+  kısmında açılıp kapanan **görünmez bir başlatıcı** kullanılır (ekranda ve son uygulamalarda
+  hiçbir şey görünmez). Bunun için "otomatik başlatma / overlay" izni gerekir; verilmemişse
+  dokunulacak bir bildirim çıkar.
 - ✅ Kamera başka bir uygulamaya geçerse (görüntülü arama vb.) serbest kalınca geri bağlanır
 - ℹ️ Bildirim çubuğunda **"AndroidConnector çalışıyor"** bildirimi ve ekranın köşesinde Android'in
   yeşil kamera noktası görünür. Bunları Android zorunlu tutar, gizlenemez.

@@ -91,6 +91,10 @@ class CameraService : Service() {
             camera.start()
             server.start()
             main.post(tick)
+        } else {
+            // Servis yeniden tetiklendi (ör. görünmez başlatıcı uygulamayı ekrandayken
+            // başlattı ve Android kamera iznini verdi): beklemeden kamerayı açmayı dene.
+            camera.kick()
         }
         return START_STICKY
     }
@@ -178,7 +182,7 @@ class CameraService : Service() {
     /** Android arka plandan kamera açılmasını engellediyse uygulamayı bir an öne getir. */
     private fun bringAppToFront() {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastBlockedLaunch < 60_000) return
+        if (now - lastBlockedLaunch < 20_000) return
         lastBlockedLaunch = now
         Launcher.bringUp(this, reason = "Kamera erişimi için uygulamanın açılması gerekiyor")
     }

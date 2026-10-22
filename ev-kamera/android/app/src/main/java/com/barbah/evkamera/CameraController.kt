@@ -108,6 +108,14 @@ class CameraController(
         status("Durdu")
     }
 
+    /** Kamera kapalıysa bekleyen yeniden denemeyi beklemeden hemen açmayı dener. */
+    fun kick() = handler.post {
+        if (wanted && device == null && !opening) {
+            handler.removeCallbacks(retry)
+            open()
+        }
+    }
+
     fun release() {
         stop()
         thread.quitSafely()
@@ -197,9 +205,9 @@ class CameraController(
         } catch (e: SecurityException) {
             // Arka planda başlatılan servis kamerayı kullanamaz; uygulamanın bir an öne gelmesi gerekir.
             closeCamera()
-            status("Android kamerayı engelledi – uygulamayı bir kez aç")
+            status("Android kamerayı engelledi – yeniden başlatılıyor")
             onBlocked()
-            scheduleRetry(30_000)
+            scheduleRetry(10_000)
         } catch (e: Exception) {
             Log.w(TAG, "open", e)
             closeCamera()

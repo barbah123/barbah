@@ -13,37 +13,41 @@ import android.content.pm.PackageManager
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> Unit
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
+            "android.intent.action.QUICKBOOT_POWERON", "com.htc.intent.action.QUICKBOOT_POWERON" -> Unit
             else -> return
         }
         val settings = Settings.get(context)
         if (!settings.autoStart || !settings.wantsRunning) return
         if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
-        // Kamerayı doğrudan arka planda başlat; uygulama ön yüze gelmez.
-        // "Diğer uygulamaların üzerinde göster" (overlay) izni verilmişse kamera-türü
-        // ön plan servisi arka planda açılabilir. Verilmemişse servis başlatılamaz;
-        // bu durumda dokunulacak bir bildirim gösterilir (yine ön yüze gelmeden).
-        try {
-            CameraService.start(context)
-        } catch (e: Exception) {
+        if (android.provider.Settings.canDrawOverlays(context)) {
+            // Kamerayı ekrana hiçbir şey getirmeden başlat (görünmez başlatıcı ile).
             Launcher.bringUp(context, reason = "Kamerayı başlatmak için dokun")
+        } else {
+            // İzin yok: servisi doğrudan dene. Android kamerayı vermezse servis
+            // dokunulacak bir bildirim gösterir.
+            try {
+                CameraService.start(context)
+            } catch (e: Exception) {
+                Launcher.bringUp(context, reason = "Kamerayı başlatmak için dokun")
+            }
         }
     }
 }
 
 /**
  * Android 11+ arka planda başlatılan servisin kamerayı açmasına izin vermez; servis
- * uygulama ekrandayken başlatılmalıdır. Bu yüzden uygulamayı kısa süreliğine açıp
- * servisi başlatıyor ve hemen arka plana alıyoruz. Bunun için "Diğer uygulamaların
- * üzerinde göster" izni gerekir; yoksa dokunulacak bir bildirim gösterilir.
+ * uygulama ekrandayken başlatılmalıdır. Bu yüzden görünmez [StartActivity]'yi bir an
+ * açıp servisi başlatıyoruz (ekranda hiçbir şey görünmez). Arka plandan ekran açmak için
+ * "Diğer uygulamaların üzerinde göster" izni gerekir; yoksa dokunulacak bir bildirim
+ * gösterilir (dokununca yine aynı görünmez başlatıcı çalışır).
  */
 object Launcher {
     private const val ALERT_ID = 2
 
     fun bringUp(context: Context, reason: String) {
-        val intent = Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra(MainActivity.EXTRA_AUTOSTART, true)
+        val intent = Intent(context, StartActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
 
         if (android.provider.Settings.canDrawOverlays(context)) {
             runCatching { context.startActivity(intent) }.onSuccess { return }

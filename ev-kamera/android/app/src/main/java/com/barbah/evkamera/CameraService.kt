@@ -36,6 +36,8 @@ class CameraService : Service() {
     private var lastBlockedLaunch = 0L
 
     /** Telegram'a en son başarıyla bildirilen adresler (açılışta ve değişince yeniden gönderilir). */
+    private var startedAt = 0L
+    private var cameraAlerted = false
     @Volatile private var announcedAddresses: String? = null
     @Volatile private var announcing = false
 
@@ -43,6 +45,7 @@ class CameraService : Service() {
         override fun run() {
             updateBattery()
             announceAddresses()
+            checkCameraHealth()
             updateNotification()
             server.start() // dinleyici düştüyse yeniden aç
             main.postDelayed(this, 30_000)
@@ -96,6 +99,8 @@ class CameraService : Service() {
             camera.start()
             server.start()
             main.post(tick)
+            startedAt = SystemClock.elapsedRealtime()
+            Hub.restartCamera = { main.post { restartCamera() } }
             // Açılışta ağ birkaç saniye geç gelebilir; adresi erken bir kez daha dene.
             main.postDelayed({ announceAddresses() }, 10_000)
         } else {
@@ -108,6 +113,7 @@ class CameraService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        Hub.restartCamera = null
         if (started) {
             camera.release()
             server.stop()
@@ -141,6 +147,33 @@ class CameraService : Service() {
     private fun releaseLocks() {
         runCatching { wakeLock?.release() }
         runCatching { wifiLock?.release() }
+    }
+
+    // --- Kamera sağlığı ---
+
+    /** Kamerayı "ekrandayken başlatılmış" sayılacak şekilde yeniden başlatır. */
+    private fun restartCamera() {
+        // Görünmez başlatıcı servisi ekrandayken yeniden tetikler (Android kamera iznini tazeler),
+        // ardından kamera kapatılıp yeniden açılır.
+        Launcher.bringUp(this, reason = "Kamerayı başlatmak için dokun")
+        main.postDelayed({ camera.restart() }, 1_500)
+    }
+
+    /** Açılıştan sonra kamera uzun süre görüntü vermezse bir kez Telegram'a haber verir. */
+    private fun checkCameraHealth() {
+        val now = SystemClock.elapsedRealtime()
+        val frameAge = System.currentTimeMillis() - Hub.frames.lastFrameTime
+        if (frameAge < 30_000) {
+            cameraAlerted = false
+            return
+        }
+        if (cameraAlerted || now - startedAt < 90_000) return
+        cameraAlerted = true
+        Telegram.sendMessage(
+            this,
+            "⚠️ Ev Kamerası görüntü vermiyor (${time()}).\nCihazdaki durum: ${Hub.cameraStatus}\n" +
+                "İzleme sayfasındaki \"Kamerayı yeniden başlat\" düğmesini dene.",
+        )
     }
 
     // --- Telegram'a adres bildirimi ---

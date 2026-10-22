@@ -14,6 +14,8 @@ object Hub {
     @Volatile var batteryLevel = -1
     @Volatile var charging = false
     @Volatile var serviceRunning = false
+    /** Servis çalışırken kamerayı yeniden başlatır (izleme sayfasındaki düğme için). */
+    @Volatile var restartCamera: (() -> Unit)? = null
 }
 
 /** Son JPEG karesi. Kamera yazar; web yayını yeni kare gelene kadar bekleyebilir. */

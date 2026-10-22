@@ -161,6 +161,15 @@ class WebServer(context: Context, private val port: Int = Settings.PORT) {
             }
             req.path == "/api/status" -> respond(out, 200, "application/json", statusJson())
             req.path == "/api/events" -> respond(out, 200, "application/json", eventsJson())
+            req.path == "/api/restart-camera" -> {
+                val hook = Hub.restartCamera
+                if (hook != null) {
+                    hook()
+                    respond(out, 200, "application/json", """{"ok":true}""".toByteArray(Charsets.UTF_8))
+                } else {
+                    respond(out, 503, "Kamera servisi çalışmıyor")
+                }
+            }
             req.path == "/api/rotate" -> {
                 settings.rotation = settings.rotation + 90
                 respond(out, 200, "application/json", """{"rotation":${settings.rotation}}""".toByteArray(Charsets.UTF_8))
@@ -264,14 +273,22 @@ class WebServer(context: Context, private val port: Int = Settings.PORT) {
                 ).toByteArray())
             out.flush()
             var last = -1L
+            var lastWrite = System.currentTimeMillis()
             while (running && !socket.isClosed) {
                 // Yeni kare yoksa bağlantı canlı mı diye en geç 2 sn'de bir son kareyi yeniden gönder.
-                val frame = Hub.frames.awaitNewer(last, 2_000) ?: Hub.frames.latest() ?: continue
+                val frame = Hub.frames.awaitNewer(last, 2_000) ?: Hub.frames.latest()
+                if (frame == null) {
+                    // Hiç kare yok: kopmuş bağlantıyı yazarak anlayamayız; 10 sn sonra kapat
+                    // (sayfa kendiliğinden yeniden bağlanır). Yoksa izleyici sayısı birikir.
+                    if (System.currentTimeMillis() - lastWrite > 10_000) break
+                    continue
+                }
                 last = frame.second
                 out.write("--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.first.size}\r\n\r\n".toByteArray())
                 out.write(frame.first)
                 out.write("\r\n".toByteArray())
                 out.flush()
+                lastWrite = System.currentTimeMillis()
             }
         } finally {
             Hub.viewers = streams.decrementAndGet()

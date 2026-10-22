@@ -20,7 +20,9 @@ main{max-width:1100px;margin:0 auto;padding:0 16px 40px}
 .view{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:16/9;border:1px solid var(--line)}
 .view img{width:100%;height:100%;object-fit:contain;display:block}
 .view .msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--mut);text-align:center;padding:16px}
-.view.stale .msg{display:flex;background:rgba(0,0,0,.6)}
+.view.stale .msg{display:flex;flex-direction:column;gap:10px;background:rgba(0,0,0,.6)}
+.view.stale img{visibility:hidden}
+.msg .camstate{color:#ffb4b4;font-size:14px}
 .fsbtn{position:absolute;top:10px;right:10px;width:40px;height:40px;padding:0;border-radius:10px;border:0;background:rgba(0,0,0,.45);color:#fff;font-size:20px;line-height:40px;text-align:center;cursor:pointer;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .fsbtn:hover{border:0}
 .view .live{position:absolute;left:12px;top:12px;font-size:12px;padding:3px 9px;border-radius:99px;background:rgba(0,0,0,.45);color:#fff;display:none}
@@ -52,7 +54,11 @@ h2{font-size:14px;margin:26px 0 10px;color:var(--mut);font-weight:600;text-trans
     <img id="cam" alt="Canlı görüntü">
     <span class="live" id="live">● Canlı</span>
     <button class="fsbtn" id="fs" title="Tam ekran" aria-label="Tam ekran">⛶</button>
-    <div class="msg" id="msg">Kamera şu an görüntü göndermiyor.<br>Cihazda Ev Kamerası servisi çalışıyor mu? Kamera kapağı açık mı?</div>
+    <div class="msg" id="msg">
+      <div>Kamera şu an görüntü göndermiyor.<br>Kamera kapağı açık mı?</div>
+      <div class="camstate" id="camstate"></div>
+      <button id="restartCam">Kamerayı yeniden başlat</button>
+    </div>
   </div>
   <div class="bar">
     <button id="pause">Duraklat</button>
@@ -76,6 +82,13 @@ cam.addEventListener('error', () => {
   if (!paused && !document.hidden && !cam.src.startsWith('data:')) setTimeout(connect, 2000);
 });
 $('re').onclick = () => { paused = false; $('pause').textContent = 'Duraklat'; connect(); };
+$('restartCam').onclick = async e => {
+  e.stopPropagation();
+  const b = e.target;
+  b.disabled = true; b.textContent = 'Yeniden başlatılıyor…';
+  try { await fetch('/api/restart-camera', { cache: 'no-store' }); } catch (err) {}
+  setTimeout(() => { b.disabled = false; b.textContent = 'Kamerayı yeniden başlat'; connect(); status(); }, 5000);
+};
 $('rotate').onclick = async e => {
   e.target.disabled = true;
   try { await fetch('/api/rotate', { cache: 'no-store' }); } catch (err) {}
@@ -130,6 +143,7 @@ async function status() {
     $('st').textContent = live ? '● Canlı' : '● Kamera durdu';
     $('st').className = 'pill ' + (live ? 'ok' : 'bad');
     $('view').classList.toggle('stale', !live);
+    $('camstate').textContent = s.camera ? 'Cihazdaki durum: ' + s.camera : '';
     $('live').textContent = live ? '● Canlı' : '● Kamera durdu';
     $('live').style.color = live ? '#3ecf8e' : '#ff5d5d';
     if (s.battery !== undefined) {

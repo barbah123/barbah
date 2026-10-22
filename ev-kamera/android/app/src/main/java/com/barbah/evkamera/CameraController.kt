@@ -108,6 +108,14 @@ class CameraController(
         status("Durdu")
     }
 
+    /** Kamerayı kapatıp hemen yeniden açar. */
+    fun restart() = handler.post {
+        if (!wanted) return@post
+        handler.removeCallbacks(retry)
+        closeCamera()
+        open()
+    }
+
     /** Kamera kapalıysa bekleyen yeniden denemeyi beklemeden hemen açmayı dener. */
     fun kick() = handler.post {
         if (wanted && device == null && !opening) {

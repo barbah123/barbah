@@ -61,23 +61,37 @@ class CameraController(
     private var generation = 0
     /** Oturumun kurulduğu an; bekçi buna göre "görüntü gelmiyor" kararı verir. */
     private var sessionStartedAt = 0L
+    /** Hangi (kamera, çözünürlük) kombinasyonunu deniyoruz. Kare gelmezse artar. */
+    private var attempt = 0
+    /** Bu oturumda hiç kare geldi mi (teşhis ve "donma" ayrımı için). */
+    private var gotFrameThisSession = false
+    /** Açılan kamera hakkında kısa bilgi (sayfada gösterilir). */
+    private var openInfo = ""
 
     private val retry = Runnable { if (wanted && device == null && !opening) open() }
 
-    /** Kamera açık göründüğü halde uzun süre kare gelmezse kapatıp yeniden açar. */
+    /** Kamera açık göründüğü halde kare gelmezse bir sonraki kamerayı/çözünürlüğü dener. */
     private val watchdog = object : Runnable {
         override fun run() {
             if (wanted && device != null && session != null) {
                 val now = SystemClock.elapsedRealtime()
                 val lastFrameAge = System.currentTimeMillis() - Hub.frames.lastFrameTime
-                if (now - sessionStartedAt > STALL_MS && lastFrameAge > STALL_MS) {
-                    Log.w(TAG, "no frames for ${lastFrameAge}ms, reopening camera")
-                    status("Görüntü gelmiyor – kamera yeniden açılıyor")
+                // Hiç kare gelmediyse hızlı (8 sn) başka kombinasyon dene; kare gelmişse
+                // sadece uzun bir donmada (20 sn) aynı kamerayı yeniden aç.
+                val limit = if (gotFrameThisSession) STALL_MS else STALL_FIRST_MS
+                if (now - sessionStartedAt > limit && lastFrameAge > limit) {
+                    if (!gotFrameThisSession) {
+                        attempt++ // bu kombinasyon kare vermedi; sıradakini dene
+                        Log.w(TAG, "no first frame, trying next camera/size (attempt=$attempt)")
+                    } else {
+                        Log.w(TAG, "camera stalled for ${lastFrameAge}ms, reopening")
+                    }
+                    status("Görüntü gelmiyor – başka kamera deneniyor")
                     closeCamera()
-                    scheduleRetry(1_000)
+                    scheduleRetry(800)
                 }
             }
-            handler.postDelayed(this, 5_000)
+            handler.postDelayed(this, 4_000)
         }
     }
 
@@ -108,10 +122,11 @@ class CameraController(
         status("Durdu")
     }
 
-    /** Kamerayı kapatıp hemen yeniden açar. */
+    /** Kamerayı kapatıp hemen yeniden açar. Baştan tüm kameraları yeniden dener. */
     fun restart() = handler.post {
         if (!wanted) return@post
         handler.removeCallbacks(retry)
+        attempt = 0
         closeCamera()
         open()
     }
@@ -140,12 +155,16 @@ class CameraController(
 
     // --- Kamerayı açma ---
 
-    private fun chooseCamera(): String? {
-        val ids = manager.cameraIdList
-        fun facing(id: String) = manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING)
-        return ids.firstOrNull { facing(it) == CameraCharacteristics.LENS_FACING_FRONT }
-            ?: ids.firstOrNull { facing(it) == CameraCharacteristics.LENS_FACING_EXTERNAL }
-            ?: ids.firstOrNull()
+    /** Denenecek kameralar, öncelik sırasıyla: ön, harici/USB, sonra diğerleri. */
+    private fun cameraCandidates(): List<String> {
+        val ids = manager.cameraIdList.toList()
+        fun facing(id: String) = runCatching {
+            manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING)
+        }.getOrNull()
+        val front = ids.filter { facing(it) == CameraCharacteristics.LENS_FACING_FRONT }
+        val external = ids.filter { facing(it) == CameraCharacteristics.LENS_FACING_EXTERNAL }
+        val rest = ids - front.toSet() - external.toSet()
+        return (front + external + rest)
     }
 
     @SuppressLint("MissingPermission")
@@ -156,25 +175,30 @@ class CameraController(
             return
         }
         try {
-            val id = chooseCamera()
-            if (id == null) {
+            val candidates = cameraCandidates()
+            if (candidates.isEmpty()) {
                 status("Kamera bulunamadı (kapak açık mı?)")
                 scheduleRetry(10_000)
                 return
             }
+            // attempt arttıkça sırayla her kamerayı, sonra daha düşük çözünürlükle dener.
+            val round = attempt / candidates.size
+            val id = candidates[attempt % candidates.size]
             cameraId = id
             val chars = manager.getCameraCharacteristics(id)
             val sizes = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
                 ?.getOutputSizes(ImageFormat.YUV_420_888).orEmpty()
-            val size = pickSize(sizes)
+            val size = pickSize(sizes, round)
             val fps = pickFpsRange(chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES))
+            openInfo = "kamera $id, ${size.width}×${size.height}"
 
             closeCamera() // önceki denemeden kalan her şeyi bırak
+            gotFrameThisSession = false
             val gen = generation
             reader = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 3).apply {
                 setOnImageAvailableListener({ onImage(it) }, handler)
             }
-            status("Açılıyor…")
+            status("Açılıyor… ($openInfo)")
             opening = true
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
@@ -253,9 +277,10 @@ class CameraController(
                     try {
                         s.setRepeatingRequest(request.build(), null, handler)
                         sessionStartedAt = SystemClock.elapsedRealtime()
+                        gotFrameThisSession = false
                         previousGrid = null
                         warmupUntil = SystemClock.elapsedRealtime() + 3_000 // pozlama otursun
-                        status("Çalışıyor")
+                        status("Bağlandı, görüntü bekleniyor… ($openInfo)")
                     } catch (e: Exception) {
                         status("Kamera başlatılamadı: ${e.message}")
                         closeCamera()
@@ -287,11 +312,16 @@ class CameraController(
         reader = null
     }
 
-    private fun pickSize(sizes: Array<out Size>): Size {
+    private fun pickSize(sizes: Array<out Size>, round: Int): Size {
         if (sizes.isEmpty()) return Size(640, 480)
-        sizes.firstOrNull { it.width == 1280 && it.height == 720 }?.let { return it }
-        return sizes.filter { it.width <= 1280 && it.height <= 720 }.maxByOrNull { it.width * it.height }
-            ?: sizes.minBy { it.width * it.height }
+        // İlk tur: 720p tercih. Sonraki turlar: giderek daha küçük çözünürlük dene
+        // (bazı kameralar yüksek çözünürlükte kare üretmez).
+        if (round <= 0) {
+            sizes.firstOrNull { it.width == 1280 && it.height == 720 }?.let { return it }
+            return sizes.filter { it.width <= 1280 && it.height <= 720 }.maxByOrNull { it.width * it.height }
+                ?: sizes.minBy { it.width * it.height }
+        }
+        return sizes.sortedBy { it.width * it.height }.getOrElse(round - 1) { sizes.minBy { it.width * it.height } }
     }
 
     /** Pil/ısı için ~15 fps; desteklenmiyorsa en düşük sabit aralık. */
@@ -306,6 +336,10 @@ class CameraController(
     private fun onImage(r: ImageReader) {
         val image = runCatching { r.acquireLatestImage() }.getOrNull() ?: return
         try {
+            if (!gotFrameThisSession) {
+                gotFrameThisSession = true
+                status("Çalışıyor ($openInfo)")
+            }
             val now = SystemClock.elapsedRealtime()
             var motion = false
             if (now - lastMotionCheck >= 250) {
@@ -435,5 +469,7 @@ class CameraController(
         private const val MOTION_COOLDOWN_MS = 15_000L
         /** Bu kadar süre kare gelmezse kamera yeniden açılır. */
         private const val STALL_MS = 20_000L
+        /** Hiç kare gelmezse bu kadar sonra başka kamera/çözünürlük denenir. */
+        private const val STALL_FIRST_MS = 8_000L
     }
 }

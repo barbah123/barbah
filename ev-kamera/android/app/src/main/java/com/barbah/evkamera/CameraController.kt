@@ -67,6 +67,8 @@ class CameraController(
     private var gotFrameThisSession = false
     /** Açılan kamera hakkında kısa bilgi (sayfada gösterilir). */
     private var openInfo = ""
+    /** Bu denemede kullanılan görüntü formatı (YUV_420_888 veya JPEG). */
+    private var currentFormat = ImageFormat.YUV_420_888
 
     private val retry = Runnable { if (wanted && device == null && !opening) open() }
 
@@ -181,21 +183,32 @@ class CameraController(
                 scheduleRetry(10_000)
                 return
             }
-            // attempt arttıkça sırayla her kamerayı, sonra daha düşük çözünürlükle dener.
+            // attempt arttıkça: önce tüm kameralar YUV, sonra tümü JPEG, sonra daha
+            // düşük çözünürlüklerle tekrar. Bazı kameralar yalnızca JPEG ile kare verir.
             val round = attempt / candidates.size
+            val format = if (round % 2 == 0) ImageFormat.YUV_420_888 else ImageFormat.JPEG
+            val sizeRound = round / 2
             val id = candidates[attempt % candidates.size]
             cameraId = id
+            currentFormat = format
             val chars = manager.getCameraCharacteristics(id)
             val sizes = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                ?.getOutputSizes(ImageFormat.YUV_420_888).orEmpty()
-            val size = pickSize(sizes, round)
+                ?.getOutputSizes(format).orEmpty()
+            if (sizes.isEmpty()) {
+                // Bu kamera bu formatı desteklemiyor; sıradaki kombinasyonu dene.
+                attempt++
+                scheduleRetry(200)
+                return
+            }
+            val size = pickSize(sizes, sizeRound)
             val fps = pickFpsRange(chars.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES))
-            openInfo = "kamera $id, ${size.width}×${size.height}"
+            val formatName = if (format == ImageFormat.JPEG) "JPEG" else "YUV"
+            openInfo = "kamera $id, ${size.width}×${size.height}, $formatName"
 
             closeCamera() // önceki denemeden kalan her şeyi bırak
             gotFrameThisSession = false
             val gen = generation
-            reader = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 3).apply {
+            reader = ImageReader.newInstance(size.width, size.height, format, 3).apply {
                 setOnImageAvailableListener({ onImage(it) }, handler)
             }
             status("Açılıyor… ($openInfo)")
@@ -283,15 +296,17 @@ class CameraController(
                         status("Bağlandı, görüntü bekleniyor… ($openInfo)")
                     } catch (e: Exception) {
                         status("Kamera başlatılamadı: ${e.message}")
+                        attempt++ // bu kombinasyon çalışmadı; sıradakini dene
                         closeCamera()
-                        scheduleRetry()
+                        scheduleRetry(500)
                     }
                 }
 
                 override fun onConfigureFailed(s: CameraCaptureSession) {
-                    status("Kamera yapılandırılamadı")
+                    status("Bu çözünürlük/format çalışmadı – başka deneniyor")
+                    attempt++ // bu kombinasyon desteklenmiyor; sıradakini dene
                     closeCamera()
-                    scheduleRetry()
+                    scheduleRetry(500)
                 }
             }, handler)
         } catch (e: Exception) {
@@ -341,6 +356,16 @@ class CameraController(
                 status("Çalışıyor ($openInfo)")
             }
             val now = SystemClock.elapsedRealtime()
+
+            // JPEG modunda kamera doğrudan JPEG verir; hareket algılama (YUV gerektirir) devre dışı.
+            if (currentFormat == ImageFormat.JPEG) {
+                if (now - lastEncode < 1000 / STREAM_FPS) return
+                lastEncode = now
+                val jpeg = jpegFrame(image, settings.rotation) ?: return
+                Hub.frames.update(jpeg)
+                return
+            }
+
             var motion = false
             if (now - lastMotionCheck >= 250) {
                 lastMotionCheck = now
@@ -364,6 +389,24 @@ class CameraController(
         } finally {
             image.close()
         }
+    }
+
+    /** JPEG formatındaki kareyi (gerekiyorsa döndürerek) döndürür. */
+    private fun jpegFrame(image: Image, rotation: Int): ByteArray? {
+        val buf = image.planes.firstOrNull()?.buffer ?: return null
+        val bytes = ByteArray(buf.remaining())
+        buf.get(bytes)
+        if (rotation == 0 || bytes.isEmpty()) return bytes
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
+        val rotated = Bitmap.createBitmap(
+            bmp, 0, 0, bmp.width, bmp.height,
+            Matrix().apply { postRotate(rotation.toFloat()) }, true,
+        )
+        val out = ByteArrayOutputStream(64 * 1024)
+        rotated.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+        if (rotated !== bmp) rotated.recycle()
+        bmp.recycle()
+        return out.toByteArray()
     }
 
     /**

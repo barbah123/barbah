@@ -63,7 +63,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal">
                     <Button android:id="@+id/btnToggle" style="@style/Btn" />
-                    <Button android:id="@+id/btnLock" style="@style/Btn" android:text="Kilitle ve arka plana al" />
+                    <Button android:id="@+id/btnLock" style="@style/Btn" android:text="Kilitle" />
                 </LinearLayout>
             </LinearLayout>
 

@@ -83,6 +83,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         main.removeCallbacks(refresh)
+        main.removeCallbacks(autoLock)
     }
 
     override fun onStop() {
@@ -130,10 +131,35 @@ class MainActivity : Activity() {
 
     // --- Kilit ---
 
+    /** Bir süre dokunulmazsa ayarlar açıkta kalmasın diye kilit ekranına döner. */
+    private val autoLock = Runnable { if (unlocked) lockNow() }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (unlocked) {
+            main.removeCallbacks(autoLock)
+            main.postDelayed(autoLock, AUTO_LOCK_MS)
+        }
+    }
+
+    private fun lockNow() {
+        unlocked = false
+        main.removeCallbacks(autoLock)
+        findViewById<EditText>(R.id.etPin).text.clear()
+        currentFocus?.let { hideKeyboard(it) }
+        showLockIfNeeded()
+    }
+
     private fun showLockIfNeeded() {
         val locked = settings.hasPin && !unlocked
         lockOverlay.visibility = if (locked) View.VISIBLE else View.GONE
-        if (locked) findViewById<EditText>(R.id.etUnlock).text.clear()
+        if (locked) {
+            main.removeCallbacks(autoLock)
+            findViewById<EditText>(R.id.etUnlock).text.clear()
+        } else {
+            main.removeCallbacks(autoLock)
+            main.postDelayed(autoLock, AUTO_LOCK_MS)
+        }
     }
 
     private fun tryUnlock() {
@@ -188,8 +214,7 @@ class MainActivity : Activity() {
             main.postDelayed({ refreshControls() }, 300)
         }
         findViewById<Button>(R.id.btnLock).setOnClickListener {
-            unlocked = false
-            moveTaskToBack(true)
+            lockNow()
         }
 
         val password = findViewById<EditText>(R.id.etPassword)
@@ -373,5 +398,6 @@ class MainActivity : Activity() {
     companion object {
         const val EXTRA_AUTOSTART = "autostart"
         private const val REQUEST_PERMISSIONS = 1
+        private const val AUTO_LOCK_MS = 30_000L
     }
 }

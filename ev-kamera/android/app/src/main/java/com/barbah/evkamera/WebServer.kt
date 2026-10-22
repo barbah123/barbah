@@ -161,6 +161,10 @@ class WebServer(context: Context, private val port: Int = Settings.PORT) {
             }
             req.path == "/api/status" -> respond(out, 200, "application/json", statusJson())
             req.path == "/api/events" -> respond(out, 200, "application/json", eventsJson())
+            req.path == "/api/rotate" -> {
+                settings.rotation = settings.rotation + 90
+                respond(out, 200, "application/json", """{"rotation":${settings.rotation}}""".toByteArray(Charsets.UTF_8))
+            }
             req.path.startsWith("/events/") -> {
                 val data = events.data(req.path.removePrefix("/events/"))
                 if (data != null) respond(out, 200, "image/jpeg", data) else respond(out, 404, "Bulunamadı")

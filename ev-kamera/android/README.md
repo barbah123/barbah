@@ -29,6 +29,10 @@ Android, "kamera türünde ön plan servisi" ile kameranın arka planda çalış
   uyarı gösterilir; değiştirmen önerilir. "Varsayılana dön" ile tekrar `133134` yapılır.
 - Yanlış şifrede ön kameradan fotoğraf çekilip kaydedilir ve (ayarlıysa) Telegram'a gönderilir;
   5 yanlış denemede 1 dakika beklenir.
+- Ayarlar ekranında 30 saniye dokunulmazsa veya **Kilitle** düğmesine basınca ekran kendiliğinden
+  kilitlenir; böylece cihaz stand üzerinde dururken web şifresi gibi bilgiler açıkta kalmaz.
+- İzleme sayfasındaki **Döndür ⟳** düğmesiyle görüntüyü telefondan/bilgisayardan da çevirebilirsin
+  (cihaza gitmeden).
 
 ## Kurulum
 

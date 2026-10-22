@@ -58,6 +58,7 @@ h2{font-size:14px;margin:26px 0 10px;color:var(--mut);font-weight:600;text-trans
     <button id="pause">Duraklat</button>
     <button id="re">Yeniden bağlan</button>
     <a class="btn" id="snap" href="/snapshot.jpg" target="_blank">Anlık fotoğraf</a>
+    <button id="rotate">Döndür ⟳</button>
   </div>
   <h2>Hareket kayıtları</h2>
   <div id="ev" class="grid"></div>
@@ -75,6 +76,12 @@ cam.addEventListener('error', () => {
   if (!paused && !document.hidden && !cam.src.startsWith('data:')) setTimeout(connect, 2000);
 });
 $('re').onclick = () => { paused = false; $('pause').textContent = 'Duraklat'; connect(); };
+$('rotate').onclick = async e => {
+  e.target.disabled = true;
+  try { await fetch('/api/rotate', { cache: 'no-store' }); } catch (err) {}
+  // Döndürme kameradan yeni karede uygulanır; yayını tazele.
+  setTimeout(() => { if (!paused && !document.hidden) connect(); e.target.disabled = false; }, 400);
+};
 $('pause').onclick = e => {
   paused = !paused;
   if (paused) { cam.src = '/snapshot.jpg?t=' + Date.now(); e.target.textContent = 'Devam et'; }

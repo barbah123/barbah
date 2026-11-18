@@ -67,8 +67,20 @@ export async function fetchSuperContext(ticker: string): Promise<SuperContext | 
   const res = await fetchWithTimeout(STOCK_URL + encodeURIComponent(ticker.toUpperCase()), {
     headers: { 'User-Agent': BROWSER_UA },
   });
-  if (!res.ok) throw new Error(`Dataroma ${res.status}: ${ticker}`);
-  return parseDataromaStock(ticker, await res.text());
+  const html = await res.text();
+  if (!res.ok) throw new Error(`Dataroma ${res.status}: ${snippet(html)}`);
+  // İzlenmeyen hisse de Dataroma'nın kendi sayfasıyla ("not found") gelir → null.
+  // Başlığı Dataroma olmayan 200 yanıtı (engel/doğrulama sayfası) ise hatadır;
+  // aksi hâlde engel sessizce "kimse tutmuyor" gibi görünür.
+  if (!/<title>[^<]*DATAROMA/i.test(html)) throw new Error(`Dataroma beklenmeyen yanıt ${res.status}: ${snippet(html)}`);
+  return parseDataromaStock(ticker, html);
+}
+
+// Hata mesajı için yanıtın başlığı + ilk metni (tanı; tam gövde loglanmaz)
+function snippet(html: string): string {
+  const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1]?.trim() ?? '';
+  const text = strip(html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')).slice(0, 160);
+  return `${title ? `[${title}] ` : ''}${text}`;
 }
 
 // "Warren Buffett - Berkshire Hathaway" → "Warren Buffett"; firma adıysa olduğu gibi
